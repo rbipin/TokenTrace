@@ -20,6 +20,7 @@ class Paths:
     """
 
     copilot_home: Path = field(default_factory=lambda: Path.home() / ".copilot")
+    claude_projects: Path = field(default_factory=lambda: Path.home() / ".claude" / "projects")
 
 
 @dataclass(frozen=True)

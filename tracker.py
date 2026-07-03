@@ -12,7 +12,7 @@ import json
 import sys
 from datetime import date, timedelta
 
-from aitoken.collectors import CopilotCliCollector
+from aitoken.collectors import ClaudeCliCollector, CopilotCliCollector
 from aitoken.config import Config
 from aitoken.pipeline import TrackerPipeline
 from aitoken.report import UsageReporter, format_table
@@ -24,6 +24,7 @@ def _build_pipeline(cfg: Config, since: date) -> TrackerPipeline:
     return (
         TrackerPipeline()
         .add(CopilotCliCollector(paths.copilot_home))
+        .add(ClaudeCliCollector(paths.claude_projects))
         .since(since)
         .store(UsageStore(cfg.db_path))
     )
