@@ -6,10 +6,10 @@ from datetime import date
 
 import pytest
 
-from aitoken.models import ActivityRecord
-from aitoken.pipeline import TrackerPipeline
-from aitoken.report import UsageReporter
-from aitoken.store import UsageStore
+from src.models import ActivityRecord
+from src.pipeline import TrackerPipeline
+from src.report import UsageReporter
+from src.store import UsageStore
 
 
 class _StubCollector:

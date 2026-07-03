@@ -12,11 +12,11 @@ import json
 import sys
 from datetime import date, timedelta
 
-from aitoken.collectors import ClaudeCliCollector, CopilotCliCollector
-from aitoken.config import Config
-from aitoken.pipeline import TrackerPipeline
-from aitoken.report import UsageReporter, format_table
-from aitoken.store import UsageStore
+from src.collectors import ClaudeCliCollector, CopilotCliCollector
+from src.config import Config
+from src.pipeline import TrackerPipeline
+from src.report import UsageReporter, format_table
+from src.store import UsageStore
 
 
 def _build_pipeline(cfg: Config, since: date) -> TrackerPipeline:

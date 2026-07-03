@@ -5,7 +5,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-from aitoken.collectors.claude_cli import ClaudeCliCollector
+from src.collectors.claude_cli import ClaudeCliCollector
 
 
 def _write_jsonl(path: Path, messages: list[dict]) -> None:

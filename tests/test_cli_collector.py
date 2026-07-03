@@ -6,7 +6,7 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
-from aitoken.collectors import CopilotCliCollector
+from src.collectors import CopilotCliCollector
 
 
 def _make_session_store(home: Path) -> None:

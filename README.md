@@ -1,26 +1,24 @@
-# Copilot Usage Tracker
+# Token Trace
 
-A local, periodic tracker for your **GitHub Copilot CLI** token usage on
-Windows. It records activity at a **daily grain** (per model, per repo/workspace)
-so you can roll it up later **by day, month, or year**.
+A local, periodic tracker for your **AI tool token usage** (GitHub Copilot CLI
+and Claude Code CLI). It records activity at a **daily grain** (per source, per
+model, per repo/workspace) so you can roll it up later **by day, month, or year**.
 
-> **Why Copilot CLI only**
+> **Why only CLI surfaces?**
 >
-> The Copilot CLI is the only surface that writes **actual token counts** to
-> disk (input, output, cache read/write, reasoning) via the
-> `session.shutdown` event's `modelMetrics`. VS Code and Visual Studio Copilot
-> Chat render token/cost data only live in their Chat Debug Views and do **not**
-> persist it — so they cannot be tracked locally. This tool therefore focuses on
-> the CLI, where the data is real and complete, and also records the CLI's
-> **context-window peak** (max tokens held in the model's context window).
-> See `docs/plans/2026-06-15-copilot-usage-tracker-design.md` for the full
-> rationale.
+> These are the only surfaces that write **actual token counts** to disk.
+> Copilot CLI records them via the `session.shutdown` event's `modelMetrics`.
+> Claude Code CLI records them in per-conversation JSONL files under
+> `~/.claude/projects/`. VS Code and web UIs render token data live but do not
+> persist it locally. See `docs/plans/2026-06-15-copilot-usage-tracker-design.md`
+> for the original rationale.
 
-## Data source
+## Data sources
 
 | Source | Location | Metrics |
 |---|---|---|
-| Copilot CLI | `%USERPROFILE%\.copilot\session-store.db` + `session-state\<id>\events.jsonl` + `logs\process-*.log` | sessions, turns, repo/branch, per-model token counts, context-window peak |
+| Copilot CLI | `~/.copilot/session-store.db` + `session-state/<id>/events.jsonl` + `logs/process-*.log` | sessions, turns, repo/branch, per-model token counts, context-window peak |
+| Claude Code CLI | `~/.claude/projects/**/*.jsonl` | per-model token counts (input, output, cache read/write) |
 
 ## Requirements
 
@@ -29,7 +27,7 @@ so you can roll it up later **by day, month, or year**.
 
 ## Usage
 
-```powershell
+```bash
 # Collect (the scheduled job). Re-scans the last N days and upserts.
 python tracker.py collect                 # default lookback: 3 days
 python tracker.py collect --lookback 30   # backfill more history
@@ -39,23 +37,22 @@ python tracker.py report --period day
 python tracker.py report --period month
 python tracker.py report --period year
 
-# Filter and/or emit JSON (for a future dashboard)
+# Filter and/or emit JSON
 python tracker.py report --period month --source copilot-cli --model claude-sonnet-4
 python tracker.py report --period year --json
 ```
 
-The database lives at `%LOCALAPPDATA%\ai-token\usage.db` by default (override
+The database lives at `usage.db` next to `tracker.py` by default (override
 with `--db`). Re-running `collect` is **idempotent** — each day is recomputed
 from the cumulative source files and overwritten.
 
-## Run it periodically (Windows Task Scheduler)
+## Run it periodically
 
-Create an hourly task that runs the collector. Adjust the Python path and repo
-path as needed:
+**Windows (Task Scheduler):**
 
 ```powershell
 $python = (Get-Command python).Source
-$script = "C:\Repo\me\ai-token\tracker.py"
+$script = "C:\path\to\ai-token\tracker.py"
 
 $action  = New-ScheduledTaskAction -Execute $python -Argument "`"$script`" collect"
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
@@ -63,34 +60,37 @@ $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
              -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries
 
-Register-ScheduledTask -TaskName "Copilot Usage Tracker" `
-  -Action $action -Trigger $trigger -Settings $settings `
-  -Description "Collects local GitHub Copilot activity hourly"
+Register-ScheduledTask -TaskName "AI Usage Tracker" `
+  -Action $action -Trigger $trigger -Settings $settings
 ```
 
-To remove it later: `Unregister-ScheduledTask -TaskName "Copilot Usage Tracker"`.
+To remove it: `Unregister-ScheduledTask -TaskName "AI Usage Tracker"`.
+
+**macOS (launchd):** create a plist in `~/Library/LaunchAgents/` that runs
+`python3 /path/to/tracker.py collect` on an hourly interval.
 
 ## Project layout
 
 ```
 ai-token/
 ├─ tracker.py                # CLI entry (collect / report)
-├─ aitoken/
+├─ src/
 │  ├─ models.py             # ActivityRecord (frozen dataclass) + merge
-│  ├─ collectors/           # one collector per Copilot surface
+│  ├─ collectors/           # one collector per AI tool surface
 │  │  ├─ base.py            # ActivityCollector protocol + time helpers
-│  │  └─ copilot_cli.py     # Copilot CLI token + activity collector
+│  │  ├─ copilot_cli.py     # Copilot CLI token + activity collector
+│  │  └─ claude_cli.py      # Claude Code CLI token collector
 │  ├─ store.py              # UsageStore (sqlite, idempotent upsert)
 │  ├─ report.py             # UsageReporter (day/month/year roll-ups)
 │  ├─ pipeline.py           # fluent TrackerPipeline
 │  └─ config.py             # paths, lookback, db location
 ├─ tests/                   # pytest suite with fixtures
-└─ docs/plans/              # design document
+└─ docs/                    # design docs and implementation plans
 ```
 
 ## Development
 
-```powershell
+```bash
 pip install -r requirements.txt
 python -m pytest -q
 ```
@@ -99,4 +99,4 @@ python -m pytest -q
 
 Add a new surface by implementing the `ActivityCollector` protocol
 (`collect(since) -> Iterable[ActivityRecord]`) and adding it to the pipeline in
-`tracker.py`. No other module needs to change (Open/Closed).
+`tracker.py`. No other module needs to change.
