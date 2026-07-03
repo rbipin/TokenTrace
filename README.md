@@ -4,6 +4,21 @@ A local, periodic tracker for your **AI tool token usage** (GitHub Copilot CLI
 and Claude Code CLI). It records activity at a **daily grain** (per source, per
 model, per repo/workspace) so you can roll it up later **by day, month, or year**.
 
+## Purpose
+
+I use AI tools heavily from the CLI and noticed that none of the existing AI harnesses — Copilot, Claude Code, etc. — give a meaningful token-level breakdown or trend over time. They show activity in the moment but offer no persistent view of how much you're consuming or how efficiently you're using it. No dashboard exists today that tracks and reports this across tools in one place.
+
+This project is my answer to that gap: a lightweight local collector that pulls token data from the sources that actually persist it to disk, stores it in SQLite, and lets me query it however I want. The goal is to understand my AI token usage and how it trends over time — and eventually use the data for things like a heatmap of usage intensity across days or models.
+
+**Built entirely with Claude Code** — requirements, direction, and corrections were provided by me; implementation was handled by Claude.
+
+## Outcome
+
+- Know exactly how many tokens I'm consuming per day, per model, per tool — not a rough estimate, actual counts
+- Spot trends: am I using more tokens this month than last? Is one model eating disproportionately more?
+- See which projects or contexts drive the heaviest usage
+- Have raw data ready for a heatmap (usage intensity by day) when I get around to building the visualisation layer
+
 > **Why only CLI surfaces?**
 >
 > These are the only surfaces that write **actual token counts** to disk.
