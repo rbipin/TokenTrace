@@ -1,7 +1,7 @@
-"""CLI entry point for the Copilot Usage Tracker.
+"""CLI entry point for the AI Usage Tracker.
 
 Subcommands:
-  collect   Scan local Copilot data and upsert daily activity (the scheduled job).
+  collect   Scan local AI tool data and upsert daily activity (the scheduled job).
   report    Aggregate stored activity by day / month / year.
 """
 
@@ -64,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tracker", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_collect = sub.add_parser("collect", help="scan local Copilot data (scheduled job)")
+    p_collect = sub.add_parser("collect", help="scan local AI tool data (scheduled job)")
     p_collect.add_argument("--lookback", type=int, default=3, help="days to re-scan (default 3)")
     p_collect.add_argument("--db", type=str, default=None, help="override database path")
     p_collect.set_defaults(func=cmd_collect)
