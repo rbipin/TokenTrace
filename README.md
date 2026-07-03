@@ -1,4 +1,4 @@
-# ai-token-tracer
+# Token Trace
 
 A local, periodic tracker for your **AI tool token usage** (GitHub Copilot CLI
 and Claude Code CLI). It records activity at a **daily grain** (per source, per
