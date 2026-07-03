@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from aitoken.models import ActivityRecord
-from aitoken.report import UsageReporter
-from aitoken.store import UsageStore
+from src.models import ActivityRecord
+from src.report import UsageReporter
+from src.store import UsageStore
 
 
 def _seed(db):

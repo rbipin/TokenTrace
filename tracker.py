@@ -1,7 +1,7 @@
-"""CLI entry point for the Copilot Usage Tracker.
+"""CLI entry point for ai-token-tracer.
 
 Subcommands:
-  collect   Scan local Copilot data and upsert daily activity (the scheduled job).
+  collect   Scan local AI tool data and upsert daily activity (the scheduled job).
   report    Aggregate stored activity by day / month / year.
 """
 
@@ -12,11 +12,11 @@ import json
 import sys
 from datetime import date, timedelta
 
-from aitoken.collectors import CopilotCliCollector
-from aitoken.config import Config
-from aitoken.pipeline import TrackerPipeline
-from aitoken.report import UsageReporter, format_table
-from aitoken.store import UsageStore
+from src.collectors import ClaudeCliCollector, CopilotCliCollector
+from src.config import Config
+from src.pipeline import TrackerPipeline
+from src.report import UsageReporter, format_table
+from src.store import UsageStore
 
 
 def _build_pipeline(cfg: Config, since: date) -> TrackerPipeline:
@@ -24,6 +24,7 @@ def _build_pipeline(cfg: Config, since: date) -> TrackerPipeline:
     return (
         TrackerPipeline()
         .add(CopilotCliCollector(paths.copilot_home))
+        .add(ClaudeCliCollector(paths.claude_projects))
         .since(since)
         .store(UsageStore(cfg.db_path))
     )
@@ -63,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tracker", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_collect = sub.add_parser("collect", help="scan local Copilot data (scheduled job)")
+    p_collect = sub.add_parser("collect", help="scan local AI tool data (scheduled job)")
     p_collect.add_argument("--lookback", type=int, default=3, help="days to re-scan (default 3)")
     p_collect.add_argument("--db", type=str, default=None, help="override database path")
     p_collect.set_defaults(func=cmd_collect)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from aitoken.models import ActivityRecord, merge_records
+from src.models import ActivityRecord, merge_records
 
 
 def test_merge_sums_counts_and_maxes_peak():
