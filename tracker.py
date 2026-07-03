@@ -1,4 +1,4 @@
-"""CLI entry point for the AI Usage Tracker.
+"""CLI entry point for ai-token-tracer.
 
 Subcommands:
   collect   Scan local AI tool data and upsert daily activity (the scheduled job).

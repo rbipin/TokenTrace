@@ -1,4 +1,4 @@
-# Token Trace
+# ai-token-tracer
 
 A local, periodic tracker for your **AI tool token usage** (GitHub Copilot CLI
 and Claude Code CLI). It records activity at a **daily grain** (per source, per
@@ -60,11 +60,11 @@ $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
              -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries
 
-Register-ScheduledTask -TaskName "AI Usage Tracker" `
+Register-ScheduledTask -TaskName "ai-token-tracer" `
   -Action $action -Trigger $trigger -Settings $settings
 ```
 
-To remove it: `Unregister-ScheduledTask -TaskName "AI Usage Tracker"`.
+To remove it: `Unregister-ScheduledTask -TaskName "ai-token-tracer"`.
 
 **macOS (launchd):** create a plist in `~/Library/LaunchAgents/` that runs
 `python3 /path/to/tracker.py collect` on an hourly interval.

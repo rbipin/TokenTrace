@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Registers the AI Usage Tracker as a macOS launchd scheduled job.
 # Run once as your normal user (no sudo required).
-# To remove:  launchctl unload ~/Library/LaunchAgents/com.ai-token.tracker.plist
-#             rm ~/Library/LaunchAgents/com.ai-token.tracker.plist
+# To remove:  launchctl unload ~/Library/LaunchAgents/com.ai-token-tracer.plist
+#             rm ~/Library/LaunchAgents/com.ai-token-tracer.plist
 
 set -euo pipefail
 
-LABEL="com.ai-token.tracker"
+LABEL="com.ai-token-tracer"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TRACKER="$SCRIPT_DIR/tracker.py"
 PYTHON="$(command -v python3)"
