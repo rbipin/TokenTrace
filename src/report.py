@@ -49,7 +49,7 @@ class UsageReporter:
         period: str = "day",
         models: Sequence[str] | None = None,
         by_project: bool = False,
-        sessions_view: bool = False,
+        summary: bool = False,
         as_json: bool = False,
     ) -> str:
         if period not in _PERIOD_SQL:
@@ -66,27 +66,87 @@ class UsageReporter:
                 model_filter = f" AND model IN ({placeholders})"
                 params.extend(models)
 
-            if sessions_view:
-                return self._render_sessions(
-                    conn, date_filter, model_filter, params,
-                    hit_rate, cost_saved, as_json,
-                )
+            args = (conn, date_filter, model_filter, params, hit_rate, cost_saved, as_json)
+
+            if summary:
+                if by_project:
+                    return self._render_by_project(*args)
+                if period in ("month", "year"):
+                    return self._render_default(conn, period, date_filter, model_filter, params,
+                                                hit_rate, cost_saved, as_json)
+                # --summary alone (day): compact per-session view
+                return self._render_sessions(*args)
+
             if by_project:
-                return self._render_by_project(
-                    conn, date_filter, model_filter, params,
-                    hit_rate, cost_saved, as_json,
-                )
-            return self._render_default(
-                conn, period, date_filter, model_filter, params,
-                hit_rate, cost_saved, as_json,
-            )
+                return self._render_by_project(*args)
+
+            # Default: detailed per-session view
+            return self._render_sessions_detailed(*args)
         finally:
             conn.close()
+
+    def _render_sessions_detailed(
+        self, conn, date_filter, model_filter, params,
+        hit_rate, cost_saved, as_json,
+    ) -> str:
+        """Default view: one row per session, full token breakdown."""
+        rows = conn.execute(f"""
+            SELECT
+                COALESCE(project, '—')  AS project,
+                source,
+                model,
+                start_ts,
+                end_ts,
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_creation_tokens,
+                turns,
+                input_tokens + cache_creation_tokens + cache_read_tokens AS denom
+            FROM sessions
+            WHERE {date_filter}{model_filter}
+            ORDER BY COALESCE(start_ts, date) DESC
+        """, params).fetchall()
+
+        if as_json:
+            return json.dumps({
+                "cache_efficiency": {
+                    "hit_rate": round(hit_rate, 4),
+                    "cost_saved_rate": round(cost_saved, 4),
+                },
+                "rows": [dict(r) for r in rows],
+            }, indent=2)
+
+        table_rows = []
+        for r in rows:
+            denom = r["denom"] or 0
+            cache_pct = f"{r['cache_read_tokens'] / denom:.0%}" if denom else "—"
+            table_rows.append([
+                r["project"],
+                r["source"],
+                r["model"],
+                (r["start_ts"] or "")[:19],
+                (r["end_ts"] or "")[:19],
+                r["input_tokens"],
+                r["output_tokens"],
+                r["cache_read_tokens"],
+                r["cache_creation_tokens"],
+                cache_pct,
+                r["turns"],
+            ])
+
+        return self._format_table(
+            hit_rate, cost_saved,
+            headers=["Project", "Source", "Model", "Start", "End",
+                     "Input", "Output", "CacheRead", "CacheCreate", "CacheHit%", "Turns"],
+            rows=table_rows,
+        )
 
     def _render_default(
         self, conn, period, date_filter, model_filter, params,
         hit_rate, cost_saved, as_json,
     ) -> str:
+        """--summary --period month/year: aggregated roll-up grouped by period+model."""
         period_expr = _PERIOD_SQL[period]
         rows = conn.execute(f"""
             SELECT
@@ -172,6 +232,7 @@ class UsageReporter:
         self, conn, date_filter, model_filter, params,
         hit_rate, cost_saved, as_json,
     ) -> str:
+        """--summary (day): compact per-session view."""
         rows = conn.execute(f"""
             SELECT
                 session_id,

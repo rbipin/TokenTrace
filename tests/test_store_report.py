@@ -127,7 +127,9 @@ def test_report_month(tmp_db):
     _populate(tmp_db)
     reporter = UsageReporter(tmp_db)
     output = reporter.report(period="month")
-    assert "2026-07" in output
+    # Detailed view shows project names and column headers
+    assert "myapp" in output
+    assert "CacheCreate" in output
 
 
 def test_report_by_project_excludes_null_projects(tmp_db):
@@ -147,13 +149,33 @@ def test_report_by_project_shows_note_when_no_projects(tmp_db):
     assert "track_project_names" in output
 
 
-def test_report_sessions_view(tmp_db):
+def test_report_default_shows_detailed_columns(tmp_db):
     _populate(tmp_db)
     reporter = UsageReporter(tmp_db)
-    output = reporter.report(period="month", sessions_view=True)
-    # All three session IDs should appear (truncated to 8 chars)
-    assert "s1" in output
-    assert "s2" in output
+    output = reporter.report(period="month")
+    # Default view shows full token breakdown columns
+    assert "CacheRead" in output
+    assert "CacheCreate" in output
+    assert "Input" in output
+
+
+def test_report_summary_month_aggregates(tmp_db):
+    _populate(tmp_db)
+    reporter = UsageReporter(tmp_db)
+    # summary + month → aggregated roll-up grouped by period+model
+    output = reporter.report(period="month", summary=True)
+    assert "Period" in output
+    assert "CacheRead" in output
+
+
+def test_report_summary_month_shows_aggregated(tmp_db):
+    _populate(tmp_db)
+    reporter = UsageReporter(tmp_db)
+    output = reporter.report(period="month", summary=True)
+    # When period is day with summary, shows compact sessions; month shows aggregated
+    # Just verify it returns a non-empty string with cache header
+    assert "Cache efficiency" in output
+    assert len(output) > 0
 
 
 def test_report_json(tmp_db):

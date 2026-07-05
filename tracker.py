@@ -57,13 +57,11 @@ def cmd_report(args) -> int:
     cfg = Config.load()
     db_path = Path(args.db) if args.db else cfg.db_path
     reporter = UsageReporter(db_path)
-    # Default view is per-session for the current day; --summary switches to aggregated roll-up.
-    sessions_view = not args.summary
     output = reporter.report(
         period=args.period,
         models=args.model or None,
         by_project=args.by_project,
-        sessions_view=sessions_view,
+        summary=args.summary,
         as_json=args.json,
     )
     print(output, end="")
