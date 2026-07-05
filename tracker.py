@@ -93,6 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # config subparser
     p_config = sub.add_parser("config", help="manage configuration")
+    p_config.set_defaults(func=lambda args: (p_config.print_help(), 1)[1])
     config_sub = p_config.add_subparsers(dest="config_cmd")
     p_config_set = config_sub.add_parser("set", help="set a config value")
     p_config_set.add_argument("key", help="config key (e.g. track_project_names)")
