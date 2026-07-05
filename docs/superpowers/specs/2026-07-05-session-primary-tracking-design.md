@@ -114,7 +114,7 @@ One `SessionRecord` per JSONL file under `~/.claude/projects/**/*.jsonl`:
 - Token fields: sum across all `message.usage` blocks on assistant entries (`input_tokens`, `output_tokens`, `cache_creation_input_tokens` → `cache_creation_tokens`, `cache_read_input_tokens` → `cache_read_tokens`)
 - `project`: `Path(entry["cwd"]).name` from the first entry that has a `cwd` field; `None` if `track_project_names=False` or no `cwd` found
 
-Files whose `start_ts` is before `since` are skipped.
+Files are skipped when `start_ts` is not `None` and `start_ts.date() < since`. Files with no timestamps are always included (rare, harmless).
 
 ### `CopilotCliCollector`
 
