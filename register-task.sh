@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Registers the AI Usage Tracker as a macOS launchd scheduled job.
+# Registers ai-token-tracer as a macOS launchd scheduled job.
+# Runs tracker.py collect --lookback 1 daily at 23:50.
 # Run once as your normal user (no sudo required).
 # To remove:  launchctl unload ~/Library/LaunchAgents/com.ai-token-tracer.plist
 #             rm ~/Library/LaunchAgents/com.ai-token-tracer.plist

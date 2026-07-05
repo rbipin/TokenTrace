@@ -1,4 +1,5 @@
-# Registers the ai-token-tracer as a Windows Scheduled Task.
+# Registers ai-token-tracer as a Windows Scheduled Task.
+# Runs tracker.py collect --lookback 1 daily at 23:50.
 # Run once as your normal user (no admin required).
 # To remove:  Unregister-ScheduledTask -TaskName "ai-token-tracer" -Confirm:$false
 
@@ -45,7 +46,7 @@ if ($existing) {
         -Action      $action `
         -Trigger     $trigger `
         -Settings    $settings `
-        -Description "Collects Copilot CLI/VSCode token usage hourly into $workDir\usage.db" | Out-Null
+        -Description "Collects AI tool token usage (Copilot CLI, Claude Code CLI) daily into $workDir\usage.db" | Out-Null
 }
 
 Write-Host ""
