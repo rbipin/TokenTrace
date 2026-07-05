@@ -1,115 +1,83 @@
-"""SQLite sink storing activity at the daily grain with idempotent upserts."""
-
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+import sys
 from pathlib import Path
-from typing import Iterable
 
-from .models import ActivityRecord
+from .models import SessionRecord
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS daily_activity (
-  date                TEXT NOT NULL,
-  source              TEXT NOT NULL,
-  model               TEXT NOT NULL,
-  scope               TEXT NOT NULL,
-  sessions            INTEGER NOT NULL DEFAULT 0,
-  prompts             INTEGER NOT NULL DEFAULT 0,
-  turns               INTEGER NOT NULL DEFAULT 0,
-  tool_calls          INTEGER NOT NULL DEFAULT 0,
-  context_peak_tokens INTEGER NOT NULL DEFAULT 0,
-  input_tokens        INTEGER NOT NULL DEFAULT 0,
-  output_tokens       INTEGER NOT NULL DEFAULT 0,
-  cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
-  cache_write_tokens  INTEGER NOT NULL DEFAULT 0,
-  reasoning_tokens    INTEGER NOT NULL DEFAULT 0,
-  first_ts            TEXT,
-  last_ts             TEXT,
-  updated_at          TEXT NOT NULL,
-  PRIMARY KEY (date, source, model, scope)
-);
+_CREATE_SESSIONS = """
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id             TEXT NOT NULL,
+    source                 TEXT NOT NULL,
+    model                  TEXT NOT NULL,
+    date                   TEXT NOT NULL,
+    start_ts               TEXT,
+    end_ts                 TEXT,
+    project                TEXT,
+    turns                  INTEGER DEFAULT 0,
+    tool_calls             INTEGER DEFAULT 0,
+    input_tokens           INTEGER DEFAULT 0,
+    output_tokens          INTEGER DEFAULT 0,
+    cache_creation_tokens  INTEGER DEFAULT 0,
+    cache_read_tokens      INTEGER DEFAULT 0,
+    context_peak_tokens    INTEGER DEFAULT 0,
+    reasoning_tokens       INTEGER DEFAULT 0,
+    PRIMARY KEY (session_id, source, model)
+)
 """
 
-_NEW_COLUMNS = [
-    ("input_tokens",       "INTEGER NOT NULL DEFAULT 0"),
-    ("output_tokens",      "INTEGER NOT NULL DEFAULT 0"),
-    ("cache_read_tokens",  "INTEGER NOT NULL DEFAULT 0"),
-    ("cache_write_tokens", "INTEGER NOT NULL DEFAULT 0"),
-    ("reasoning_tokens",   "INTEGER NOT NULL DEFAULT 0"),
-]
-
 _UPSERT = """
-INSERT INTO daily_activity
-  (date, source, model, scope, sessions, prompts, turns, tool_calls,
-   context_peak_tokens, input_tokens, output_tokens, cache_read_tokens,
-   cache_write_tokens, reasoning_tokens, first_ts, last_ts, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(date, source, model, scope) DO UPDATE SET
-  sessions            = excluded.sessions,
-  prompts             = excluded.prompts,
-  turns               = excluded.turns,
-  tool_calls          = excluded.tool_calls,
-  context_peak_tokens = excluded.context_peak_tokens,
-  input_tokens        = excluded.input_tokens,
-  output_tokens       = excluded.output_tokens,
-  cache_read_tokens   = excluded.cache_read_tokens,
-  cache_write_tokens  = excluded.cache_write_tokens,
-  reasoning_tokens    = excluded.reasoning_tokens,
-  first_ts            = excluded.first_ts,
-  last_ts             = excluded.last_ts,
-  updated_at          = excluded.updated_at;
+INSERT OR REPLACE INTO sessions
+    (session_id, source, model, date, start_ts, end_ts, project,
+     turns, tool_calls, input_tokens, output_tokens,
+     cache_creation_tokens, cache_read_tokens,
+     context_peak_tokens, reasoning_tokens)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
 class UsageStore:
-    """Owns the tracker's SQLite database.
-
-    Re-collecting a day overwrites that day's rows (each collector already
-    aggregates a full day from cumulative source files), which keeps repeated
-    runs idempotent.
-    """
-
     def __init__(self, db_path: Path) -> None:
-        self._db_path = Path(db_path)
+        self._db_path = db_path
+        self._migrate()
 
-    def connect(self) -> sqlite3.Connection:
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self._db_path)
-        conn.row_factory = sqlite3.Row
-        conn.executescript(_SCHEMA)
-        self._migrate(conn)
-        return conn
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self._db_path)
 
-    @staticmethod
-    def _migrate(conn: sqlite3.Connection) -> None:
-        existing = {row[1] for row in conn.execute("PRAGMA table_info(daily_activity)")}
-        for col, defn in _NEW_COLUMNS:
-            if col not in existing:
-                conn.execute(f"ALTER TABLE daily_activity ADD COLUMN {col} {defn}")
-        conn.commit()
-
-    def upsert(self, records: Iterable[ActivityRecord]) -> int:
-        now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-        conn = self.connect()
-        try:
-            count = 0
-            for rec in records:
-                conn.execute(
-                    _UPSERT,
-                    (
-                        rec.date, rec.source, rec.model, rec.scope,
-                        rec.sessions, rec.prompts, rec.turns, rec.tool_calls,
-                        rec.context_peak_tokens,
-                        rec.input_tokens, rec.output_tokens,
-                        rec.cache_read_tokens, rec.cache_write_tokens,
-                        rec.reasoning_tokens,
-                        rec.first_ts, rec.last_ts, now,
-                    ),
+    def _migrate(self) -> None:
+        with self._connect() as conn:
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if "usage" in tables and "sessions" not in tables:
+                print(
+                    "Warning: dropping old 'usage' table. "
+                    "Re-run: python3 tracker.py collect --lookback 90",
+                    file=sys.stderr,
                 )
-                count += 1
+                conn.execute("DROP TABLE usage")
+            conn.execute(_CREATE_SESSIONS)
             conn.commit()
-            return count
-        finally:
-            conn.close()
+
+    def upsert(self, records: list[SessionRecord]) -> int:
+        if not records:
+            return 0
+        with self._connect() as conn:
+            conn.executemany(
+                _UPSERT,
+                [
+                    (
+                        r.session_id, r.source, r.model, r.date,
+                        r.start_ts, r.end_ts, r.project,
+                        r.turns, r.tool_calls, r.input_tokens, r.output_tokens,
+                        r.cache_creation_tokens, r.cache_read_tokens,
+                        r.context_peak_tokens, r.reasoning_tokens,
+                    )
+                    for r in records
+                ],
+            )
+        return len(records)
