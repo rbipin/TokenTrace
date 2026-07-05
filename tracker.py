@@ -57,11 +57,13 @@ def cmd_report(args) -> int:
     cfg = Config.load()
     db_path = Path(args.db) if args.db else cfg.db_path
     reporter = UsageReporter(db_path)
+    # Default view is per-session for the current day; --summary switches to aggregated roll-up.
+    sessions_view = not args.summary
     output = reporter.report(
         period=args.period,
         models=args.model or None,
         by_project=args.by_project,
-        sessions_view=args.sessions,
+        sessions_view=sessions_view,
         as_json=args.json,
     )
     print(output, end="")
@@ -107,8 +109,8 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
                           help="filter to model(s) (repeatable)")
     p_report.add_argument("--by-project", action="store_true",
                           help="group by project (requires project tracking enabled)")
-    p_report.add_argument("--sessions", action="store_true",
-                          help="show individual session rows")
+    p_report.add_argument("--summary", action="store_true",
+                          help="aggregate by period+model instead of showing per-session rows")
     p_report.add_argument("--json", action="store_true",
                           help="output as JSON")
 
