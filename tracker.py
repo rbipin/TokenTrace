@@ -13,7 +13,7 @@ import sys
 from datetime import date, timedelta
 
 from src.collectors import ClaudeCliCollector, CopilotCliCollector
-from src.config import Config
+from src.config import Config, write_toml_setting
 from src.pipeline import TrackerPipeline
 from src.report import UsageReporter, format_table
 from src.store import UsageStore
@@ -60,6 +60,20 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_config_set(args) -> int:
+    supported = {"track_project_names"}
+    if args.key not in supported:
+        print(
+            f"Unknown config key: {args.key!r}. Supported: {', '.join(supported)}",
+            file=sys.stderr,
+        )
+        return 1
+    bool_val = args.value.lower() in ("1", "true", "yes")
+    write_toml_setting(args.key, bool_val)
+    print(f"Set {args.key} = {bool_val} in ~/.tokentracer.toml")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tracker", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -76,6 +90,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_report.add_argument("--json", action="store_true", help="emit JSON")
     p_report.add_argument("--db", type=str, default=None, help="override database path")
     p_report.set_defaults(func=cmd_report)
+
+    # config subparser
+    p_config = sub.add_parser("config", help="manage configuration")
+    config_sub = p_config.add_subparsers(dest="config_cmd")
+    p_config_set = config_sub.add_parser("set", help="set a config value")
+    p_config_set.add_argument("key", help="config key (e.g. track_project_names)")
+    p_config_set.add_argument("value", help="value (true/false/1/0/yes/no)")
+    p_config_set.set_defaults(func=cmd_config_set)
 
     return parser
 
