@@ -1,183 +1,148 @@
-"""Tests for CopilotCliCollector using a fixture ~/.copilot tree."""
-
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import date
 from pathlib import Path
 
-from src.collectors import CopilotCliCollector
+import pytest
+
+from src.collectors.copilot_cli import CopilotCliCollector
 
 
-def _make_session_store(home: Path) -> None:
-    db = home / "session-store.db"
-    conn = sqlite3.connect(db)
-    conn.executescript(
-        """
-        CREATE TABLE sessions (id TEXT PRIMARY KEY, cwd TEXT, repository TEXT,
-            host_type TEXT, branch TEXT, summary TEXT, created_at TEXT, updated_at TEXT);
-        CREATE TABLE turns (id TEXT PRIMARY KEY, session_id TEXT, turn_index INT,
-            user_message TEXT, assistant_response TEXT, timestamp TEXT);
-        """
-    )
-    conn.execute("INSERT INTO sessions VALUES ('s1','C:/x','owner/repoA','github','main','sum','2026-06-10T12:00:00.000Z','2026-06-10T12:30:00.000Z')")
-    conn.execute("INSERT INTO sessions VALUES ('s2','C:/y','','github','main','sum','2026-06-10T13:00:00.000Z','2026-06-10T13:30:00.000Z')")
-    conn.executemany(
-        "INSERT INTO turns VALUES (?,?,?,?,?,?)",
-        [
-            ("t1", "s1", 0, "u", "a", "2026-06-10T12:00:00.000Z"),
-            ("t2", "s1", 1, "u", "a", "2026-06-10T12:05:00.000Z"),
-            ("t3", "s2", 0, "u", "a", "2026-06-10T13:00:00.000Z"),
-            ("told", "s1", 2, "u", "a", "2023-01-01T00:00:00.000Z"),  # before since
-        ],
+def _make_home(tmp_path: Path) -> Path:
+    home = tmp_path / "copilot"
+    home.mkdir()
+    db_path = home / "session-store.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            cwd TEXT,
+            repository TEXT,
+            origin TEXT,
+            branch TEXT,
+            status TEXT,
+            startedAt TEXT,
+            endedAt TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+    return home
+
+
+def _add_session(home: Path, id_: str, cwd: str, repo: str,
+                 started: str, ended: str) -> None:
+    conn = sqlite3.connect(home / "session-store.db")
+    conn.execute(
+        "INSERT INTO sessions VALUES (?, ?, ?, 'github', 'main', 'sum', ?, ?)",
+        (id_, cwd, repo, started, ended),
     )
     conn.commit()
     conn.close()
 
 
-def _make_log(home: Path) -> None:
-    logs = home / "logs"
-    logs.mkdir(parents=True, exist_ok=True)
-    (logs / "process-1.log").write_text(
-        "2026-06-10T12:01:00.000Z [INFO] CompactionProcessor: Utilization 46.1% (92263/200000 tokens) below threshold 80%\n"
-        "2026-06-10T12:02:00.000Z [INFO] CompactionProcessor: Utilization 47.6% (95163/200000 tokens) below threshold 80%\n"
-        "2026-06-10T12:03:00.000Z [INFO] unrelated line without tokens\n",
-        encoding="utf-8",
-    )
-
-
-def test_collects_sessions_turns_and_scope(tmp_path: Path):
-    home = tmp_path / ".copilot"
-    home.mkdir()
-    _make_session_store(home)
-    _make_log(home)
-
-    records = list(CopilotCliCollector(home).collect(date(2026, 6, 1)))
-    by_scope = {r.scope: r for r in records}
-
-    # repoA scope: 1 session, 2 turns/prompts
-    assert by_scope["owner/repoA"].sessions == 1
-    assert by_scope["owner/repoA"].prompts == 2
-    assert by_scope["owner/repoA"].turns == 2
-    # cwd fallback when repository empty
-    assert by_scope["C:/y"].sessions == 1
-    # context peak folded into most-active row (owner/repoA has 2 prompts > C:/y with 1)
-    assert by_scope["owner/repoA"].context_peak_tokens == 95163
-    assert "" not in by_scope
-    assert all(r.source == "copilot-cli" for r in records)
-
-
-def test_since_excludes_old_turns(tmp_path: Path):
-    home = tmp_path / ".copilot"
-    home.mkdir()
-    _make_session_store(home)
-    records = list(CopilotCliCollector(home).collect(date(2026, 6, 1)))
-    # the 2023 turn must not inflate counts
-    total_turns = sum(r.turns for r in records)
-    assert total_turns == 3
-
-
-def test_model_resolved_from_events_jsonl(tmp_path: Path):
-    import json
-    home = tmp_path / ".copilot"
-    home.mkdir()
-    _make_session_store(home)
-    # Write events.jsonl for session s1 with claude-opus-4.7 as dominant model.
-    ss = home / "session-state" / "s1"
-    ss.mkdir(parents=True)
-    events = [
-        {"type": "assistant.message", "data": {"model": "claude-opus-4.7", "content": "hi"}},
-        {"type": "assistant.message", "data": {"model": "claude-opus-4.7", "content": "there"}},
-        {"type": "assistant.message", "data": {"model": "claude-sonnet-4", "content": "ok"}},
-    ]
-    (ss / "events.jsonl").write_text(
+def _write_events(home: Path, session_id: str, events: list[dict]) -> None:
+    state_dir = home / "session-state" / session_id
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "events.jsonl").write_text(
         "\n".join(json.dumps(e) for e in events), encoding="utf-8"
     )
-    records = list(CopilotCliCollector(home).collect(date(2026, 6, 1)))
-    # s1 scope is owner/repoA; model should be claude-opus-4.7 (plurality)
-    repoA = next(r for r in records if r.scope == "owner/repoA")
-    assert repoA.model == "claude-opus-4.7"
 
 
-def test_shutdown_tokens_per_model(tmp_path: Path):
-    import json
-    home = tmp_path / ".copilot"
-    home.mkdir()
-    _make_session_store(home)
-    ss = home / "session-state" / "s1"
-    ss.mkdir(parents=True)
-    shutdown_event = {
+def _shutdown(model_metrics: dict) -> dict:
+    return {
         "type": "session.shutdown",
-        "timestamp": "2026-06-10T12:30:00.000Z",
-        "data": {
-            "currentModel": "claude-opus-4.7",
-            "modelMetrics": {
-                "claude-opus-4.7": {
-                    "requests": {"count": 2, "cost": 2},
-                    "usage": {
-                        "inputTokens": 10000,
-                        "outputTokens": 500,
-                        "cacheReadTokens": 8000,
-                        "cacheWriteTokens": 1000,
-                        "reasoningTokens": 50,
-                    },
-                },
-                "claude-sonnet-4.6": {
-                    "requests": {"count": 1, "cost": 0},
-                    "usage": {
-                        "inputTokens": 3000,
-                        "outputTokens": 100,
-                        "cacheReadTokens": 2000,
-                        "cacheWriteTokens": 500,
-                        "reasoningTokens": 0,
-                    },
-                },
-            },
+        "modelMetrics": {
+            m: {
+                "sessions": 1 if i == 0 else 0,
+                "turns": v.get("turns", 0),
+                "inputTokens": v.get("input", 0),
+                "outputTokens": v.get("output", 0),
+                "cacheReadTokens": v.get("cache_read", 0),
+                "cacheWriteTokens": v.get("cache_write", 0),
+                "reasoningTokens": v.get("reasoning", 0),
+            }
+            for i, (m, v) in enumerate(model_metrics.items())
         },
     }
-    (ss / "events.jsonl").write_text(json.dumps(shutdown_event), encoding="utf-8")
-
-    records = list(CopilotCliCollector(home).collect(date(2026, 6, 1)))
-    by_model = {r.model: r for r in records if r.scope == "owner/repoA"}
-
-    # Primary model (most output tokens) gets sessions/turns
-    opus = by_model["claude-opus-4.7"]
-    assert opus.input_tokens == 10000
-    assert opus.output_tokens == 500
-    assert opus.cache_read_tokens == 8000
-    assert opus.cache_write_tokens == 1000
-    assert opus.reasoning_tokens == 50
-    assert opus.sessions == 1
-    assert opus.turns == 2  # 2 turns for s1 within since window
-
-    # Secondary model gets token counts but no sessions/turns
-    sonnet = by_model["claude-sonnet-4.6"]
-    assert sonnet.input_tokens == 3000
-    assert sonnet.output_tokens == 100
-    assert sonnet.sessions == 0
-    assert sonnet.turns == 0
 
 
-def test_active_session_output_tokens_fallback(tmp_path: Path):
-    """Without session.shutdown, outputTokens from assistant.message are summed."""
-    import json
-    home = tmp_path / ".copilot"
-    home.mkdir()
-    _make_session_store(home)
-    ss = home / "session-state" / "s1"
-    ss.mkdir(parents=True)
-    events = [
-        {"type": "assistant.message", "data": {"model": "claude-opus-4.7", "outputTokens": 300, "content": "hi"}},
-        {"type": "assistant.message", "data": {"model": "claude-opus-4.7", "outputTokens": 200, "content": "there"}},
-    ]
-    (ss / "events.jsonl").write_text(
-        "\n".join(json.dumps(e) for e in events), encoding="utf-8"
-    )
-    records = list(CopilotCliCollector(home).collect(date(2026, 6, 1)))
-    repoA = next(r for r in records if r.scope == "owner/repoA")
-    assert repoA.output_tokens == 500
-    assert repoA.input_tokens == 0  # not available without shutdown
+def test_basic_shutdown_session(tmp_path):
+    home = _make_home(tmp_path)
+    _add_session(home, "s1", "/work/myapp", "owner/myapp",
+                 "2026-06-10T12:00:00.000Z", "2026-06-10T12:30:00.000Z")
+    _write_events(home, "s1", [
+        _shutdown({"claude-sonnet-4-6": {"turns": 3, "input": 1000, "output": 200,
+                                          "cache_read": 500, "cache_write": 100}}),
+    ])
+    records = list(CopilotCliCollector(home).collect(date(2026, 6, 10)))
+    assert len(records) == 1
+    r = records[0]
+    assert r.session_id == "s1"
+    assert r.source == "copilot_cli"
+    assert r.model == "claude-sonnet-4-6"
+    assert r.turns == 3
+    assert r.input_tokens == 1000
+    assert r.cache_read_tokens == 500
+    assert r.cache_creation_tokens == 100
 
 
-def test_missing_home_is_safe(tmp_path: Path):
-    assert list(CopilotCliCollector(tmp_path / "nope").collect(date(2026, 1, 1))) == []
+def test_multi_model_shutdown_yields_separate_records(tmp_path):
+    home = _make_home(tmp_path)
+    _add_session(home, "s1", "/work/x", "owner/x",
+                 "2026-06-10T12:00:00.000Z", "2026-06-10T13:00:00.000Z")
+    _write_events(home, "s1", [
+        _shutdown({
+            "claude-opus-4-8": {"turns": 2, "input": 10000, "output": 500},
+            "claude-sonnet-4-6": {"turns": 0, "input": 3000, "output": 100},
+        }),
+    ])
+    records = list(CopilotCliCollector(home).collect(date(2026, 6, 10)))
+    assert len(records) == 2
+    models = {r.model for r in records}
+    assert models == {"claude-opus-4-8", "claude-sonnet-4-6"}
+
+
+def test_since_filter(tmp_path):
+    home = _make_home(tmp_path)
+    _add_session(home, "s-old", "/work/x", "", "2026-06-01T10:00:00.000Z", "2026-06-01T11:00:00.000Z")
+    _write_events(home, "s-old", [
+        _shutdown({"claude-sonnet-4-6": {"turns": 1, "input": 100, "output": 20}}),
+    ])
+    records = list(CopilotCliCollector(home).collect(date(2026, 6, 10)))
+    assert records == []
+
+
+def test_project_from_repository(tmp_path):
+    home = _make_home(tmp_path)
+    _add_session(home, "s1", "/work/x", "owner/myrepo",
+                 "2026-06-10T12:00:00.000Z", "2026-06-10T12:30:00.000Z")
+    _write_events(home, "s1", [
+        _shutdown({"claude-sonnet-4-6": {"turns": 1, "input": 100, "output": 20}}),
+    ])
+    r = list(CopilotCliCollector(home, track_project_names=True).collect(date(2026, 6, 10)))[0]
+    assert r.project == "myrepo"
+
+
+def test_project_from_cwd_when_no_repo(tmp_path):
+    home = _make_home(tmp_path)
+    _add_session(home, "s1", "/work/localproject", "",
+                 "2026-06-10T12:00:00.000Z", "2026-06-10T12:30:00.000Z")
+    _write_events(home, "s1", [
+        _shutdown({"claude-sonnet-4-6": {"turns": 1, "input": 100, "output": 20}}),
+    ])
+    r = list(CopilotCliCollector(home, track_project_names=True).collect(date(2026, 6, 10)))[0]
+    assert r.project == "localproject"
+
+
+def test_project_none_when_disabled(tmp_path):
+    home = _make_home(tmp_path)
+    _add_session(home, "s1", "/work/secret", "owner/secret",
+                 "2026-06-10T12:00:00.000Z", "2026-06-10T12:30:00.000Z")
+    _write_events(home, "s1", [
+        _shutdown({"claude-sonnet-4-6": {"turns": 1, "input": 100, "output": 20}}),
+    ])
+    r = list(CopilotCliCollector(home, track_project_names=False).collect(date(2026, 6, 10)))[0]
+    assert r.project is None
