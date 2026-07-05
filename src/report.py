@@ -1,127 +1,239 @@
-"""Read-time roll-ups over the daily grain (day / month / year, by model etc.)."""
-
 from __future__ import annotations
 
+import json
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from .store import UsageStore
+_PERIOD_SQL = {
+    "day":   "date",
+    "month": "strftime('%Y-%m', date)",
+    "year":  "strftime('%Y', date)",
+}
 
-_PERIOD_EXPR = {
-    "day": "date",
-    "month": "substr(date, 1, 7)",
-    "year": "substr(date, 1, 4)",
+_DATE_RANGE_SQL = {
+    "day":   "date = date('now', 'localtime')",
+    "month": "date >= date('now', 'start of month', 'localtime')",
+    "year":  "date >= date('now', 'start of year', 'localtime')",
 }
 
 
 @dataclass(frozen=True)
-class ReportRow:
-    """One aggregated bucket of a usage report."""
-
-    period: str
-    source: str
-    model: str
-    sessions: int
-    prompts: int
-    turns: int
-    tool_calls: int
-    context_peak_tokens: int
-    input_tokens: int
-    output_tokens: int
-    cache_read_tokens: int
-    cache_write_tokens: int
-    reasoning_tokens: int
-
-
 class UsageReporter:
-    """Aggregates ``daily_activity`` by a chosen period and dimensions.
+    db_path: Path
 
-    Counts are summed; ``context_peak_tokens`` uses ``MAX`` because a peak is an
-    instantaneous high-water mark, not something to add up.
-    """
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
 
-    def __init__(self, db_path: Path) -> None:
-        self._store = UsageStore(db_path)
+    def _cache_efficiency(self, conn: sqlite3.Connection) -> tuple[float, float]:
+        row = conn.execute("""
+            SELECT
+                COALESCE(SUM(input_tokens), 0),
+                COALESCE(SUM(cache_creation_tokens), 0),
+                COALESCE(SUM(cache_read_tokens), 0)
+            FROM sessions
+        """).fetchone()
+        total = row[0] + row[1] + row[2]
+        if total == 0:
+            return 0.0, 0.0
+        hit_rate = row[2] / total
+        # cache-read costs ~10% of regular input → ~90% saving on those tokens
+        cost_saved = hit_rate * 0.9
+        return hit_rate, cost_saved
 
     def report(
         self,
         period: str = "day",
-        sources: Sequence[str] | None = None,
         models: Sequence[str] | None = None,
-    ) -> list[ReportRow]:
-        if period not in _PERIOD_EXPR:
-            raise ValueError(f"unknown period: {period!r} (use day, month or year)")
-        period_expr = _PERIOD_EXPR[period]
+        by_project: bool = False,
+        sessions_view: bool = False,
+        as_json: bool = False,
+    ) -> str:
+        if period not in _PERIOD_SQL:
+            raise ValueError(f"period must be one of {list(_PERIOD_SQL)}")
 
-        where: list[str] = []
-        params: list[str] = []
-        if sources:
-            where.append(f"source IN ({','.join('?' * len(sources))})")
-            params.extend(sources)
-        if models:
-            where.append(f"model IN ({','.join('?' * len(models))})")
-            params.extend(models)
-        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
-
-        sql = f"""
-            SELECT {period_expr} AS period, source, model,
-                   SUM(sessions)            AS sessions,
-                   SUM(prompts)             AS prompts,
-                   SUM(turns)               AS turns,
-                   SUM(tool_calls)          AS tool_calls,
-                   MAX(context_peak_tokens) AS context_peak_tokens,
-                   SUM(input_tokens)        AS input_tokens,
-                   SUM(output_tokens)       AS output_tokens,
-                   SUM(cache_read_tokens)   AS cache_read_tokens,
-                   SUM(cache_write_tokens)  AS cache_write_tokens,
-                   SUM(reasoning_tokens)    AS reasoning_tokens
-            FROM daily_activity
-            {where_sql}
-            GROUP BY period, source, model
-            ORDER BY period DESC, source, model
-        """
-        conn = self._store.connect()
+        conn = self._connect()
         try:
-            rows = conn.execute(sql, params).fetchall()
+            hit_rate, cost_saved = self._cache_efficiency(conn)
+            date_filter = _DATE_RANGE_SQL[period]
+            model_filter = ""
+            params: list = []
+            if models:
+                placeholders = ",".join("?" * len(models))
+                model_filter = f" AND model IN ({placeholders})"
+                params.extend(models)
+
+            if sessions_view:
+                return self._render_sessions(
+                    conn, date_filter, model_filter, params,
+                    hit_rate, cost_saved, as_json,
+                )
+            if by_project:
+                return self._render_by_project(
+                    conn, date_filter, model_filter, params,
+                    hit_rate, cost_saved, as_json,
+                )
+            return self._render_default(
+                conn, period, date_filter, model_filter, params,
+                hit_rate, cost_saved, as_json,
+            )
         finally:
             conn.close()
-        return [
-            ReportRow(
-                period=r["period"], source=r["source"], model=r["model"],
-                sessions=r["sessions"], prompts=r["prompts"], turns=r["turns"],
-                tool_calls=r["tool_calls"], context_peak_tokens=r["context_peak_tokens"],
-                input_tokens=r["input_tokens"] or 0,
-                output_tokens=r["output_tokens"] or 0,
-                cache_read_tokens=r["cache_read_tokens"] or 0,
-                cache_write_tokens=r["cache_write_tokens"] or 0,
-                reasoning_tokens=r["reasoning_tokens"] or 0,
+
+    def _render_default(
+        self, conn, period, date_filter, model_filter, params,
+        hit_rate, cost_saved, as_json,
+    ) -> str:
+        period_expr = _PERIOD_SQL[period]
+        rows = conn.execute(f"""
+            SELECT
+                {period_expr}                            AS period,
+                source,
+                model,
+                SUM(turns)                               AS turns,
+                SUM(input_tokens)                        AS input_tokens,
+                SUM(output_tokens)                       AS output_tokens,
+                SUM(cache_creation_tokens)               AS cache_creation_tokens,
+                SUM(cache_read_tokens)                   AS cache_read_tokens
+            FROM sessions
+            WHERE {date_filter}{model_filter}
+            GROUP BY {period_expr}, source, model
+            ORDER BY period DESC, input_tokens DESC
+        """, params).fetchall()
+
+        if as_json:
+            return json.dumps({
+                "cache_efficiency": {
+                    "hit_rate": round(hit_rate, 4),
+                    "cost_saved_rate": round(cost_saved, 4),
+                },
+                "rows": [dict(r) for r in rows],
+            }, indent=2)
+
+        return self._format_table(
+            hit_rate, cost_saved,
+            headers=["Period", "Source", "Model", "Turns",
+                     "Input", "Output", "CacheCreate", "CacheRead"],
+            rows=[[r["period"], r["source"], r["model"], r["turns"],
+                   r["input_tokens"], r["output_tokens"],
+                   r["cache_creation_tokens"], r["cache_read_tokens"]]
+                  for r in rows],
+        )
+
+    def _render_by_project(
+        self, conn, date_filter, model_filter, params,
+        hit_rate, cost_saved, as_json,
+    ) -> str:
+        rows = conn.execute(f"""
+            SELECT
+                project,
+                date,
+                model,
+                SUM(turns)                AS turns,
+                SUM(input_tokens)         AS input_tokens,
+                SUM(output_tokens)        AS output_tokens,
+                SUM(cache_read_tokens)    AS cache_read_tokens
+            FROM sessions
+            WHERE project IS NOT NULL
+              AND {date_filter}{model_filter}
+            GROUP BY project, date, model
+            ORDER BY SUM(input_tokens + cache_read_tokens) DESC
+        """, params).fetchall()
+
+        if not rows:
+            note = (
+                "No project data found. Enable project tracking:\n"
+                "  python3 tracker.py config set track_project_names true\n"
+                "Then re-collect: python3 tracker.py collect --track-projects"
             )
-            for r in rows
-        ]
+            if as_json:
+                return json.dumps({"note": note, "rows": []}, indent=2)
+            return note
 
+        if as_json:
+            return json.dumps({
+                "cache_efficiency": {"hit_rate": round(hit_rate, 4)},
+                "rows": [dict(r) for r in rows],
+            }, indent=2)
 
-def format_table(rows: Sequence[ReportRow]) -> str:
-    """Render report rows as a fixed-width text table."""
-    headers = [
-        "PERIOD", "SOURCE", "MODEL", "SESSIONS", "PROMPTS", "TURNS", "TOOLS",
-        "CTX_PEAK", "IN_TOK", "OUT_TOK", "CACHE_R", "CACHE_W", "REASON",
-    ]
-    data = [
-        [
-            r.period, r.source, r.model,
-            str(r.sessions), str(r.prompts), str(r.turns), str(r.tool_calls),
-            str(r.context_peak_tokens),
-            str(r.input_tokens), str(r.output_tokens),
-            str(r.cache_read_tokens), str(r.cache_write_tokens),
-            str(r.reasoning_tokens),
+        return self._format_table(
+            hit_rate, cost_saved,
+            headers=["Project", "Date", "Model", "Turns",
+                     "Input", "Output", "CacheRead"],
+            rows=[[r["project"], r["date"], r["model"], r["turns"],
+                   r["input_tokens"], r["output_tokens"], r["cache_read_tokens"]]
+                  for r in rows],
+        )
+
+    def _render_sessions(
+        self, conn, date_filter, model_filter, params,
+        hit_rate, cost_saved, as_json,
+    ) -> str:
+        rows = conn.execute(f"""
+            SELECT
+                session_id,
+                COALESCE(project, '—') AS project,
+                date,
+                start_ts,
+                end_ts,
+                model,
+                turns,
+                input_tokens + cache_creation_tokens + cache_read_tokens AS total_tokens,
+                cache_read_tokens,
+                input_tokens + cache_creation_tokens + cache_read_tokens AS denom
+            FROM sessions
+            WHERE {date_filter}{model_filter}
+            ORDER BY COALESCE(start_ts, date) DESC
+        """, params).fetchall()
+
+        if as_json:
+            return json.dumps({
+                "cache_efficiency": {"hit_rate": round(hit_rate, 4)},
+                "rows": [dict(r) for r in rows],
+            }, indent=2)
+
+        table_rows = []
+        for r in rows:
+            sid = r["session_id"][:8]
+            denom = r["denom"] or 0
+            cache_pct = f"{r['cache_read_tokens'] / denom:.0%}" if denom else "—"
+            table_rows.append([
+                sid, r["project"], r["date"],
+                (r["start_ts"] or "")[:19], (r["end_ts"] or "")[:19],
+                r["turns"], r["total_tokens"], cache_pct,
+            ])
+
+        return self._format_table(
+            hit_rate, cost_saved,
+            headers=["Session", "Project", "Date", "Start", "End",
+                     "Turns", "Tokens", "CacheHit%"],
+            rows=table_rows,
+        )
+
+    @staticmethod
+    def _format_table(
+        hit_rate: float,
+        cost_saved: float,
+        headers: list[str],
+        rows: list[list],
+    ) -> str:
+        efficiency_line = (
+            f"Cache efficiency: {hit_rate:.0%} read from cache "
+            f"(~{cost_saved:.0%} cost saved)\n"
+        )
+        if not rows:
+            return efficiency_line + "No data for this period.\n"
+
+        str_rows = [[str(c) for c in row] for row in rows]
+        widths = [max(len(h), max((len(r[i]) for r in str_rows), default=0))
+                  for i, h in enumerate(headers)]
+        sep = "  ".join("-" * w for w in widths)
+        header_line = "  ".join(h.ljust(w) for h, w in zip(headers, widths))
+        data_lines = [
+            "  ".join(c.ljust(w) for c, w in zip(row, widths))
+            for row in str_rows
         ]
-        for r in rows
-    ]
-    widths = [len(h) for h in headers]
-    for row in data:
-        widths = [max(w, len(c)) for w, c in zip(widths, row)]
-    line = "  ".join(h.ljust(w) for h, w in zip(headers, widths))
-    out = [line, "  ".join("-" * w for w in widths)]
-    out.extend("  ".join(c.ljust(w) for c, w in zip(row, widths)) for row in data)
-    return "\n".join(out)
+        return efficiency_line + "\n".join([header_line, sep] + data_lines) + "\n"
