@@ -88,15 +88,28 @@ your total token budget came from the cache, and the approximate cost saving
 
 ## Configuration
 
-Project-name tracking is opt-in to avoid storing path information you might
-not want persisted. Enable it persistently:
+Settings are stored in `~/.tokentracer.toml`. You can edit the file directly
+or use `tracker.py config set <key> <value>` to update individual keys.
+
+```toml
+# ~/.tokentracer.toml
+
+[tracking]
+# Store the project/repo name on each session record.
+# Derived from the repository field (Copilot) or the cwd (Claude Code).
+# Off by default — enable if you want per-project breakdowns.
+# Override per-run with: --track-projects / --no-track-projects
+track_project_names = false
+```
+
+Set a value from the CLI (rewrites the file safely, preserving other keys):
 
 ```bash
 python3 tracker.py config set track_project_names true
 ```
 
-This writes `[tracking]\ntrack_project_names = true` to `~/.tokentracer.toml`.
-You can also override per-run with `--track-projects` / `--no-track-projects`.
+CLI flags `--track-projects` and `--no-track-projects` on the `collect`
+subcommand override the file value for that run only.
 
 ## Run it periodically
 
