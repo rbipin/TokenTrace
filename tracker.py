@@ -102,7 +102,7 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
 
     # report
     p_report = sub.add_parser("report", help="show usage report")
-    p_report.add_argument("--period", choices=["day", "month", "year"], default="day")
+    p_report.add_argument("--period", choices=["all", "day", "month", "year"], default="day")
     p_report.add_argument("--model", action="append", dest="model",
                           help="filter to model(s) (repeatable)")
     p_report.add_argument("--by-project", action="store_true",

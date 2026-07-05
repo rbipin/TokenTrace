@@ -7,12 +7,14 @@ from pathlib import Path
 from typing import Sequence
 
 _PERIOD_SQL = {
+    "all":   "strftime('%Y-%m', date)",
     "day":   "date",
     "month": "strftime('%Y-%m', date)",
     "year":  "strftime('%Y', date)",
 }
 
 _DATE_RANGE_SQL = {
+    "all":   "1=1",
     "day":   "date = date('now', 'localtime')",
     "month": "date >= date('now', 'start of month', 'localtime')",
     "year":  "date >= date('now', 'start of year', 'localtime')",
@@ -71,7 +73,7 @@ class UsageReporter:
             if summary:
                 if by_project:
                     return self._render_by_project(*args)
-                if period in ("month", "year"):
+                if period in ("all", "month", "year"):
                     return self._render_default(conn, period, date_filter, model_filter, params,
                                                 hit_rate, cost_saved, as_json)
                 # --summary alone (day): compact per-session view
