@@ -1,62 +1,70 @@
-"""CLI entry point for ai-token-tracer.
-
-Subcommands:
-  collect   Scan local AI tool data and upsert daily activity (the scheduled job).
-  report    Aggregate stored activity by day / month / year.
-"""
-
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from datetime import date, timedelta
+from pathlib import Path
 
-from src.collectors import ClaudeCliCollector, CopilotCliCollector
+from src.collectors import CopilotCliCollector, ClaudeCliCollector
 from src.config import Config, write_toml_setting
 from src.pipeline import TrackerPipeline
-from src.report import UsageReporter, format_table
+from src.report import UsageReporter
 from src.store import UsageStore
 
 
-def _build_pipeline(cfg: Config, since: date) -> TrackerPipeline:
+def _build_pipeline(cfg: Config, track_project_names: bool) -> TrackerPipeline:
     paths = cfg.paths
     return (
         TrackerPipeline()
-        .add(CopilotCliCollector(paths.copilot_home))
-        .add(ClaudeCliCollector(paths.claude_projects))
-        .since(since)
-        .store(UsageStore(cfg.db_path))
+        .add(CopilotCliCollector(paths.copilot_home, track_project_names=track_project_names))
+        .add(ClaudeCliCollector(paths.claude_projects, track_project_names=track_project_names))
     )
 
 
-def cmd_collect(args: argparse.Namespace) -> int:
-    cfg = Config(lookback_days=args.lookback)
-    if args.db:
-        cfg = Config(paths=cfg.paths, db_path=args.db, lookback_days=args.lookback)
+def cmd_collect(args) -> int:
+    # Resolve track_project_names: CLI flag > toml > default
+    if args.track_projects is True:
+        track = True
+    elif args.track_projects is False:
+        track = False
+    else:
+        track = None  # not specified — use toml/default
+
+    cfg = Config.load(**({"track_project_names": track} if track is not None else {}))
+    cfg = Config(
+        paths=cfg.paths,
+        db_path=Path(args.db) if args.db else cfg.db_path,
+        lookback_days=args.lookback,
+        track_project_names=cfg.track_project_names,
+    )
+
     since = date.today() - timedelta(days=cfg.lookback_days)
-    result = _build_pipeline(cfg, since).run()
-    print(
-        f"collected {result.records_written} daily rows from "
-        f"{result.collectors_run} collectors since {since.isoformat()} "
-        f"-> {cfg.db_path}"
-    )
+    pipeline = _build_pipeline(cfg, cfg.track_project_names)
+    result = pipeline.since(since).store(UsageStore(cfg.db_path)).run()
+
     for err in result.errors:
-        print(f"  warning: {err}", file=sys.stderr)
+        print(f"Warning: {err}", file=sys.stderr)
+
+    print(
+        f"Collected {result.records_written} session records "
+        f"from {result.collectors_run} collectors "
+        f"(since {since.isoformat()})"
+    )
     return 0
 
 
-def cmd_report(args: argparse.Namespace) -> int:
-    cfg = Config()
-    db_path = args.db or cfg.db_path
+def cmd_report(args) -> int:
+    cfg = Config.load()
+    db_path = Path(args.db) if args.db else cfg.db_path
     reporter = UsageReporter(db_path)
-    rows = reporter.report(period=args.period, sources=args.source, models=args.model)
-    if args.json:
-        print(json.dumps([row.__dict__ for row in rows], indent=2))
-    elif not rows:
-        print("no activity recorded yet")
-    else:
-        print(format_table(rows))
+    output = reporter.report(
+        period=args.period,
+        models=args.model or None,
+        by_project=args.by_project,
+        sessions_view=args.sessions,
+        as_json=args.json,
+    )
+    print(output, end="")
     return 0
 
 
@@ -74,39 +82,64 @@ def cmd_config_set(args) -> int:
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="tracker", description=__doc__)
-    sub = parser.add_subparsers(dest="command", required=True)
+def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
+    parser = argparse.ArgumentParser(prog="tracker", description="AI token tracker")
+    parser.add_argument("--db", default=None, help="path to usage.db")
+    sub = parser.add_subparsers(dest="cmd")
 
-    p_collect = sub.add_parser("collect", help="scan local AI tool data (scheduled job)")
-    p_collect.add_argument("--lookback", type=int, default=3, help="days to re-scan (default 3)")
-    p_collect.add_argument("--db", type=str, default=None, help="override database path")
-    p_collect.set_defaults(func=cmd_collect)
+    # collect
+    p_collect = sub.add_parser("collect", help="collect usage from local logs")
+    p_collect.add_argument("--lookback", type=int, default=3,
+                           help="days of history to collect (default: 3)")
+    p_collect.set_defaults(track_projects=None)
+    track_group = p_collect.add_mutually_exclusive_group()
+    track_group.add_argument("--track-projects", dest="track_projects",
+                             action="store_const", const=True,
+                             help="store project names (override toml)")
+    track_group.add_argument("--no-track-projects", dest="track_projects",
+                             action="store_const", const=False,
+                             help="suppress project names (override toml)")
 
-    p_report = sub.add_parser("report", help="aggregate stored activity")
+    # report
+    p_report = sub.add_parser("report", help="show usage report")
     p_report.add_argument("--period", choices=["day", "month", "year"], default="day")
-    p_report.add_argument("--source", action="append", help="filter by source (repeatable)")
-    p_report.add_argument("--model", action="append", help="filter by model (repeatable)")
-    p_report.add_argument("--json", action="store_true", help="emit JSON")
-    p_report.add_argument("--db", type=str, default=None, help="override database path")
-    p_report.set_defaults(func=cmd_report)
+    p_report.add_argument("--model", action="append", dest="model",
+                          help="filter to model(s) (repeatable)")
+    p_report.add_argument("--by-project", action="store_true",
+                          help="group by project (requires project tracking enabled)")
+    p_report.add_argument("--sessions", action="store_true",
+                          help="show individual session rows")
+    p_report.add_argument("--json", action="store_true",
+                          help="output as JSON")
 
-    # config subparser
+    # config
     p_config = sub.add_parser("config", help="manage configuration")
-    p_config.set_defaults(func=lambda args: (p_config.print_help(), 1)[1])
     config_sub = p_config.add_subparsers(dest="config_cmd")
     p_config_set = config_sub.add_parser("set", help="set a config value")
-    p_config_set.add_argument("key", help="config key (e.g. track_project_names)")
-    p_config_set.add_argument("value", help="value (true/false/1/0/yes/no)")
-    p_config_set.set_defaults(func=cmd_config_set)
+    p_config_set.add_argument("key")
+    p_config_set.add_argument("value")
 
-    return parser
+    return parser, p_config
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    return args.func(args)
+def main() -> None:
+    parser, p_config = _build_parser()
+    args = parser.parse_args()
+
+    if args.cmd == "collect":
+        sys.exit(cmd_collect(args))
+    elif args.cmd == "report":
+        sys.exit(cmd_report(args))
+    elif args.cmd == "config":
+        if args.config_cmd == "set":
+            sys.exit(cmd_config_set(args))
+        else:
+            p_config.print_help()
+            sys.exit(1)
+    else:
+        parser.print_help()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
