@@ -47,24 +47,33 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 ```bash
 # Collect (the scheduled job). Re-scans the last N days and upserts.
 python3 tracker.py collect                      # default lookback: 3 days
-python3 tracker.py collect --lookback 30        # backfill more history
+python3 tracker.py collect --lookback 90        # backfill more history
 python3 tracker.py collect --track-projects     # store project names this run
 python3 tracker.py collect --no-track-projects  # suppress project names this run
 
-# Report — roll up by day / month / year
-python3 tracker.py report --period day
-python3 tracker.py report --period month
-python3 tracker.py report --period year
+# Default report — today's sessions, one row per session, full token detail
+python3 tracker.py report
+# Columns: Project  Source  Model  Start  End  Input  Output  CacheRead  CacheCreate  CacheHit%  Turns
 
-# Drill into individual sessions
-python3 tracker.py report --period month --sessions
+# Scope to a different period (all | day | month | year)
+python3 tracker.py report --period month        # this month's sessions, detailed
+python3 tracker.py report --period all          # every session in the database
 
-# Group by project (requires --track-projects to have been used during collect)
-python3 tracker.py report --period month --by-project
+# --summary: compact per-session view (Session Project Date Start End Turns Tokens CacheHit%)
+python3 tracker.py report --summary
 
-# Filter by model and/or emit JSON
+# --summary + period: aggregated roll-up grouped by period+model
+python3 tracker.py report --summary --period month
+python3 tracker.py report --summary --period year
+python3 tracker.py report --summary --period all
+
+# --by-project: group by project
+python3 tracker.py report --by-project                          # today, by project
+python3 tracker.py report --summary --period all --by-project   # all history, by project
+
+# Filter by model, emit JSON — combinable with any of the above
 python3 tracker.py report --period month --model claude-sonnet-4-6
-python3 tracker.py report --period year --json
+python3 tracker.py report --summary --period all --by-project --json
 
 # Configuration (persisted to ~/.tokentracer.toml)
 python3 tracker.py config set track_project_names true

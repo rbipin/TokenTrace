@@ -15,10 +15,27 @@ python3 -m pytest tests/test_claude_cli_collector.py -q
 python3 tracker.py collect --lookback 3
 
 # Report usage
-python3 tracker.py report --period day
-python3 tracker.py report --period month --sessions
-python3 tracker.py report --period month --by-project
-python3 tracker.py report --period day --json
+# Default: today's sessions, one row each (Project Source Model Start End Input Output CacheRead CacheCreate CacheHit% Turns)
+python3 tracker.py report
+
+# --summary: compact session view (Session Project Date Start End Turns Tokens CacheHit%)
+python3 tracker.py report --summary
+
+# --summary + period: aggregated roll-up grouped by period+model
+python3 tracker.py report --summary --period month
+python3 tracker.py report --summary --period year
+python3 tracker.py report --summary --period all     # entire database, no date filter
+
+# --by-project: group by project (requires --track-projects data in db)
+python3 tracker.py report --summary --period all --by-project
+
+# --period scopes all views: all | day | month | year  (default: day)
+python3 tracker.py report --period month             # detailed sessions for current month
+python3 tracker.py report --period all --by-project  # all projects ever
+
+# Filter and JSON output
+python3 tracker.py report --model claude-sonnet-4-6
+python3 tracker.py report --summary --period month --json
 
 # Configuration
 python3 tracker.py config set track_project_names true
@@ -43,7 +60,7 @@ src/
   store.py               SQLite-backed UsageStore; sessions table, upsert is idempotent (session-grain keyed)
   pipeline.py            Fluent TrackerPipeline; runs collectors in parallel via ThreadPoolExecutor
   config.py              Paths, TOML loading (Config.load()), write_toml_setting()
-  report.py              UsageReporter: day/month/year roll-ups, cache efficiency header, --by-project, --sessions
+  report.py              UsageReporter: all/day/month/year periods, cache efficiency header, default detailed session view, --summary, --by-project
 ```
 
 **Data flow**: `Collector.collect(since)` → `List[SessionRecord]` → `merge_records` deduplicates → `UsageStore.upsert` writes SQLite → `UsageReporter.report` aggregates for display.
