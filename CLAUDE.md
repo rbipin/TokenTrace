@@ -43,7 +43,9 @@ python3 tracker.py config set track_project_names true
 
 No build step — standard library only at runtime. Install `pytest` for testing: `pip install -r requirements.txt`.
 
-`register-task.ps1` is a PowerShell helper to register the collector as a Windows scheduled task.
+**Packaging**: `pyproject.toml` defines the `tokentracer` console script. Install locally with `pipx install .` or `uv tool install .`. Default db path when installed: `~/.tokentracer/usage.db`.
+
+`register-task.ps1` / `register-task.sh` are helpers to register the collector as a scheduled task (Windows Task Scheduler / macOS launchd).
 
 ## Architecture
 

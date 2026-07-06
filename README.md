@@ -42,6 +42,30 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 - Python 3.11+ (standard library only at runtime; `tomllib` used for config).
 - `pytest` only for running the tests: `pip install -r requirements.txt`.
 
+## Installation
+
+**pipx (recommended):**
+```bash
+pipx install tokentracer
+tokentracer collect
+tokentracer report
+```
+
+**uv:**
+```bash
+uv tool install tokentracer
+tokentracer collect
+tokentracer report
+```
+
+**From source:**
+```bash
+git clone https://github.com/rbipin/TokenTracer
+pipx install .          # or: uv tool install .
+```
+
+The database is created at `~/.tokentracer/usage.db` on first run. Override with `--db`.
+
 ## Usage
 
 ```bash
@@ -79,9 +103,9 @@ python3 tracker.py report --summary --period all --by-project --json
 python3 tracker.py config set track_project_names true
 ```
 
-The database lives at `usage.db` next to `tracker.py` by default (override
-with `--db`). Re-running `collect` is **idempotent** — each session is
-identified by its unique ID and re-collecting overwrites the stored row.
+The database lives at `~/.tokentracer/usage.db` by default (override with
+`--db`). Re-running `collect` is **idempotent** — each session is identified
+by its unique ID and re-collecting overwrites the stored row.
 
 ### Cache efficiency
 
@@ -147,6 +171,7 @@ To remove it: `Unregister-ScheduledTask -TaskName "ai-token-tracer"`.
 
 ```
 ai-token/
+├─ pyproject.toml            # packaging — pip/pipx/uv entry point
 ├─ tracker.py                # CLI entry (collect / report / config)
 ├─ src/
 │  ├─ models.py             # SessionRecord (frozen dataclass) + merge
