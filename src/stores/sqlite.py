@@ -31,11 +31,12 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 _CREATE_SYNC_LOG = """
 CREATE TABLE IF NOT EXISTS sync_log (
-    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
-    source                 TEXT NOT NULL,
-    sync_time              TEXT NOT NULL,
-    records_synced         INTEGER NOT NULL,
-    sync_duration_ms       INTEGER
+    session_id  TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    store_name  TEXT NOT NULL,
+    synced_at   TEXT NOT NULL,
+    PRIMARY KEY (session_id, source, model, store_name)
 )
 """
 
@@ -122,3 +123,46 @@ class SqliteStore:
         # SQLite connections are managed via context manager,
         # so there's nothing to do here, but we implement the protocol.
         pass
+
+    def unsynced_for(self, store_name: str) -> list[SessionRecord]:
+        """Return all records not yet synced to the given store."""
+        _UNSYNCED = """
+        SELECT s.session_id, s.source, s.model, s.date, s.start_ts, s.end_ts,
+               s.project, s.turns, s.tool_calls, s.input_tokens, s.output_tokens,
+               s.cache_creation_tokens, s.cache_read_tokens,
+               s.context_peak_tokens, s.reasoning_tokens
+        FROM sessions s
+        LEFT JOIN sync_log l
+            ON s.session_id = l.session_id
+            AND s.source = l.source
+            AND s.model = l.model
+            AND l.store_name = ?
+        WHERE l.session_id IS NULL
+        """
+        with self._connect() as conn:
+            rows = conn.execute(_UNSYNCED, (store_name,)).fetchall()
+        return [
+            SessionRecord(
+                session_id=row[0], source=row[1], model=row[2], date=row[3],
+                start_ts=row[4], end_ts=row[5], project=row[6],
+                turns=row[7], tool_calls=row[8], input_tokens=row[9],
+                output_tokens=row[10], cache_creation_tokens=row[11],
+                cache_read_tokens=row[12], context_peak_tokens=row[13],
+                reasoning_tokens=row[14],
+            )
+            for row in rows
+        ]
+
+    def mark_synced(self, records: list[SessionRecord], store_name: str) -> None:
+        """Record that the given records were successfully pushed to store_name."""
+        if not records:
+            return
+        _MARK_SYNCED = """
+        INSERT OR IGNORE INTO sync_log (session_id, source, model, store_name, synced_at)
+        VALUES (?, ?, ?, ?, datetime('now'))
+        """
+        with self._connect() as conn:
+            conn.executemany(
+                _MARK_SYNCED,
+                [(r.session_id, r.source, r.model, store_name) for r in records],
+            )

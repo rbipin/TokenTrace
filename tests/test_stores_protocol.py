@@ -133,3 +133,36 @@ class TestSqliteStore:
         store = SqliteStore(tmp_db)
         store.close()
         store.close()  # Should not raise
+
+
+def _rec(session_id: str, **kwargs) -> SessionRecord:
+    return SessionRecord(
+        session_id=session_id,
+        source=kwargs.get("source", "test"),
+        model=kwargs.get("model", "claude-sonnet-4-6"),
+        date=kwargs.get("date", "2026-07-06"),
+        input_tokens=kwargs.get("input_tokens", 100),
+        output_tokens=kwargs.get("output_tokens", 50),
+    )
+
+
+def test_sqlite_store_unsynced_for(tmp_path):
+    db = tmp_path / "usage.db"
+    store = SqliteStore(db)
+    store.upsert([_rec("s1"), _rec("s2")])
+    pending = store.unsynced_for("supabase")
+    assert len(pending) == 2
+    store.mark_synced([pending[0]], "supabase")
+    pending2 = store.unsynced_for("supabase")
+    assert len(pending2) == 1
+    assert pending2[0].session_id == "s2"
+
+
+def test_sqlite_store_mark_synced_idempotent(tmp_path):
+    db = tmp_path / "usage.db"
+    store = SqliteStore(db)
+    store.upsert([_rec("s1")])
+    rec = store.unsynced_for("cosmos")[0]
+    store.mark_synced([rec], "cosmos")
+    store.mark_synced([rec], "cosmos")  # second call must not raise
+    assert store.unsynced_for("cosmos") == []
