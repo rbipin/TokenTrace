@@ -43,6 +43,7 @@ class UsageStore:
         self._migrate()
 
     def _connect(self) -> sqlite3.Connection:
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
         return sqlite3.connect(self._db_path)
 
     def _migrate(self) -> None:

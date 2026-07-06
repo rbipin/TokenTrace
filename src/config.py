@@ -27,7 +27,7 @@ class Paths:
 class Config:
     paths: Paths = field(default_factory=Paths)
     db_path: Path = field(
-        default_factory=lambda: Path(__file__).resolve().parents[1] / "usage.db"
+        default_factory=lambda: Path.home() / ".tokentracer" / "usage.db"
     )
     lookback_days: int = 3
     track_project_names: bool = False
