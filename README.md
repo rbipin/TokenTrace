@@ -1,3 +1,5 @@
+<img width="1536" height="800" alt="TokenTrace" src="https://github.com/user-attachments/assets/25f04f4b-ecc8-4b9f-95be-52098c9bffed" />
+
 # Token Trace
 
 A local, periodic tracker for your **AI tool token usage** (GitHub Copilot CLI
