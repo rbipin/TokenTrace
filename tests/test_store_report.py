@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from src.models import SessionRecord
-from src.store import UsageStore
+from src.stores.sqlite import SqliteStore
 
 
 def _rec(session_id: str, date_str: str = "2026-07-01", **kwargs) -> SessionRecord:
@@ -16,13 +16,13 @@ def _rec(session_id: str, date_str: str = "2026-07-01", **kwargs) -> SessionReco
 
 
 def test_upsert_and_count(tmp_db):
-    store = UsageStore(tmp_db)
+    store = SqliteStore(tmp_db)
     n = store.upsert([_rec("s1"), _rec("s2")])
     assert n == 2
 
 
 def test_upsert_is_idempotent(tmp_db):
-    store = UsageStore(tmp_db)
+    store = SqliteStore(tmp_db)
     store.upsert([_rec("s1", input_tokens=100)])
     store.upsert([_rec("s1", input_tokens=200)])  # re-collect same session
     import sqlite3
@@ -32,7 +32,7 @@ def test_upsert_is_idempotent(tmp_db):
 
 
 def test_upsert_different_models_same_session(tmp_db):
-    store = UsageStore(tmp_db)
+    store = SqliteStore(tmp_db)
     store.upsert([
         _rec("s1", model="claude-sonnet-4-6", turns=3),
         _rec("s1", model="claude-opus-4-8", turns=1),
@@ -51,7 +51,7 @@ def test_migration_drops_old_usage_table(tmp_db, capsys):
     conn.commit()
     conn.close()
     # Init store — should migrate
-    UsageStore(tmp_db)
+    SqliteStore(tmp_db)
     captured = capsys.readouterr()
     assert "usage" in captured.err  # migration warning printed
     conn2 = sqlite3.connect(tmp_db)
@@ -61,7 +61,7 @@ def test_migration_drops_old_usage_table(tmp_db, capsys):
 
 
 def test_project_stored_when_set(tmp_db):
-    store = UsageStore(tmp_db)
+    store = SqliteStore(tmp_db)
     store.upsert([_rec("s1", project="MyApp")])
     import sqlite3
     conn = sqlite3.connect(tmp_db)
@@ -70,7 +70,7 @@ def test_project_stored_when_set(tmp_db):
 
 
 def test_project_null_when_not_set(tmp_db):
-    store = UsageStore(tmp_db)
+    store = SqliteStore(tmp_db)
     store.upsert([_rec("s1")])
     import sqlite3
     conn = sqlite3.connect(tmp_db)
@@ -84,7 +84,7 @@ from src.report import UsageReporter
 
 
 def _populate(db: Path) -> None:
-    store = UsageStore(db)
+    store = SqliteStore(db)
     store.upsert([
         SessionRecord(
             session_id="s1", source="claude_cli", model="claude-sonnet-4-6",
@@ -142,7 +142,7 @@ def test_report_by_project_excludes_null_projects(tmp_db):
 
 
 def test_report_by_project_shows_note_when_no_projects(tmp_db):
-    store = UsageStore(tmp_db)
+    store = SqliteStore(tmp_db)
     store.upsert([_rec("s1", project=None)])
     reporter = UsageReporter(tmp_db)
     output = reporter.report(period="day", by_project=True)

@@ -9,7 +9,7 @@ from src.collectors import CopilotCliCollector, ClaudeCliCollector
 from src.config import Config, write_toml_setting
 from src.pipeline import TrackerPipeline
 from src.report import UsageReporter
-from src.store import UsageStore
+from src.stores.sqlite import SqliteStore
 
 
 def _parse_bool_arg(val: str) -> bool:
@@ -44,7 +44,7 @@ def cmd_collect(args) -> int:
 
     since = date.today() - timedelta(days=cfg.lookback_days)
     pipeline = _build_pipeline(cfg, cfg.track_project_names)
-    result = pipeline.since(since).store(UsageStore(cfg.db_path)).run()
+    result = pipeline.since(since).store(SqliteStore(cfg.db_path)).run()
 
     for err in result.errors:
         print(f"Warning: {err}", file=sys.stderr)

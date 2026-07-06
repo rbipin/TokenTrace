@@ -9,7 +9,7 @@ import pytest
 from src.models import SessionRecord
 from src.pipeline import TrackerPipeline
 from src.report import UsageReporter
-from src.store import UsageStore
+from src.stores.sqlite import SqliteStore
 
 
 class _StubCollector:
@@ -32,7 +32,7 @@ def test_pipeline_merges_and_writes(tmp_db):
     c2 = _StubCollector("claude_cli", [rec])
     result = (
         TrackerPipeline().add(c1).add(c2)
-        .since(date(2026, 1, 1)).store(UsageStore(tmp_db)).run()
+        .since(date(2026, 1, 1)).store(SqliteStore(tmp_db)).run()
     )
     assert result.records_written == 1
     output = UsageReporter(tmp_db).report(period="day")
@@ -44,13 +44,13 @@ def test_pipeline_isolates_failing_collector(tmp_db):
                         date="2026-06-15", turns=1, input_tokens=50)
     good = _StubCollector("claude_cli", [rec])
     bad = _StubCollector("claude_cli", [], boom=True)
-    result = TrackerPipeline().add(bad).add(good).since(date(2026, 1, 1)).store(UsageStore(tmp_db)).run()
+    result = TrackerPipeline().add(bad).add(good).since(date(2026, 1, 1)).store(SqliteStore(tmp_db)).run()
     assert result.records_written == 1
     assert any("claude_cli" in e for e in result.errors)
 
 
 def test_pipeline_requires_since_and_store(tmp_db):
     with pytest.raises(ValueError):
-        TrackerPipeline().store(UsageStore(tmp_db)).run()
+        TrackerPipeline().store(SqliteStore(tmp_db)).run()
     with pytest.raises(ValueError):
         TrackerPipeline().since(date(2026, 1, 1)).run()

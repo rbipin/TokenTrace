@@ -9,7 +9,8 @@ from typing import List
 
 from .collectors.base import ActivityCollector
 from .models import SessionRecord, merge_records
-from .store import UsageStore
+from .stores import SessionStore
+from .stores.sqlite import SqliteStore
 
 
 @dataclass(frozen=True)
@@ -29,14 +30,14 @@ class TrackerPipeline:
         (TrackerPipeline()
             .add(CopilotCliCollector(...))
             .since(start)
-            .store(UsageStore(db))
+            .store(SqliteStore(db))
             .run())
     """
 
     def __init__(self) -> None:
         self._collectors: list[ActivityCollector] = []
         self._since: date | None = None
-        self._store: UsageStore | None = None
+        self._store: SessionStore | None = None
 
     def add(self, collector: ActivityCollector) -> "TrackerPipeline":
         self._collectors.append(collector)
@@ -46,7 +47,7 @@ class TrackerPipeline:
         self._since = start
         return self
 
-    def store(self, store: UsageStore) -> "TrackerPipeline":
+    def store(self, store: SessionStore) -> "TrackerPipeline":
         self._store = store
         return self
 
