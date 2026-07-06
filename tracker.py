@@ -12,6 +12,10 @@ from src.report import UsageReporter
 from src.store import UsageStore
 
 
+def _parse_bool_arg(val: str) -> bool:
+    return val.lower() in ("1", "true", "yes")
+
+
 def _build_pipeline(cfg: Config, track_project_names: bool) -> TrackerPipeline:
     paths = cfg.paths
     return (
@@ -76,7 +80,7 @@ def cmd_config_set(args) -> int:
             file=sys.stderr,
         )
         return 1
-    bool_val = args.value.lower() in ("1", "true", "yes")
+    bool_val = _parse_bool_arg(args.value)
     write_toml_setting(args.key, bool_val)
     print(f"Set {args.key} = {bool_val} in ~/.tokentracer.toml")
     return 0
