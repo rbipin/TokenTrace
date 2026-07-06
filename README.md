@@ -3,8 +3,9 @@
 # Token Trace
 
 A local, periodic tracker for your **AI tool token usage** (GitHub Copilot CLI
-and Claude Code CLI). It records activity at a **daily grain** (per source, per
-model, per repo/workspace) so you can roll it up later **by day, month, or year**.
+and Claude Code CLI). It records activity at a **session grain** (one row per
+session per model) so you can roll it up by day, month, or year — and drill
+into individual sessions or projects.
 
 ## Purpose
 
@@ -16,9 +17,10 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 
 ## Outcome
 
-- Know exactly how many tokens I'm consuming per day, per model, per tool — not a rough estimate, actual counts
+- Know exactly how many tokens I'm consuming per session, per model, per tool — not a rough estimate, actual counts
+- See cache efficiency: how much of your input came from cache and how much cost that saved
 - Spot trends: am I using more tokens this month than last? Is one model eating disproportionately more?
-- See which projects or contexts drive the heaviest usage
+- See which projects or contexts drive the heaviest usage (opt-in)
 - Have raw data ready for a heatmap (usage intensity by day) when I get around to building the visualisation layer
 
 > **Why only CLI surfaces?**
@@ -34,34 +36,115 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 
 | Source | Location | Metrics |
 |---|---|---|
-| Copilot CLI | `~/.copilot/session-store.db` + `session-state/<id>/events.jsonl` + `logs/process-*.log` | sessions, turns, repo/branch, per-model token counts, context-window peak |
-| Claude Code CLI | `~/.claude/projects/**/*.jsonl` | per-model token counts (input, output, cache read/write) |
+| Copilot CLI | `~/.copilot/session-store.db` + `session-state/<id>/events.jsonl` | sessions, turns, per-model token counts (input, output, cache read/write, reasoning) |
+| Claude Code CLI | `~/.claude/projects/**/*.jsonl` | per-session token counts (input, output, cache read/write) |
 
 ## Requirements
 
-- Python 3.10+ (standard library only at runtime).
+- Python 3.11+ (standard library only at runtime; `tomllib` used for config).
 - `pytest` only for running the tests: `pip install -r requirements.txt`.
+
+## Installation
+
+**pipx (recommended):**
+```bash
+pipx install tokentracer
+tokentracer collect
+tokentracer report
+```
+
+**uv:**
+```bash
+uv tool install tokentracer
+tokentracer collect
+tokentracer report
+```
+
+**From source:**
+```bash
+git clone https://github.com/rbipin/TokenTracer
+pipx install .          # or: uv tool install .
+```
+
+The database is created at `~/.tokentracer/usage.db` on first run. Override with `--db`.
 
 ## Usage
 
 ```bash
 # Collect (the scheduled job). Re-scans the last N days and upserts.
-python tracker.py collect                 # default lookback: 3 days
-python tracker.py collect --lookback 30   # backfill more history
+python3 tracker.py collect                      # default lookback: 3 days
+python3 tracker.py collect --lookback 90        # backfill more history
+python3 tracker.py collect --track-projects     # store project names this run
+python3 tracker.py collect --no-track-projects  # suppress project names this run
 
-# Report — roll up by day / month / year
-python tracker.py report --period day
-python tracker.py report --period month
-python tracker.py report --period year
+# Default report — today's sessions, one row per session, full token detail
+python3 tracker.py report
+# Columns: Project  Source  Model  Start  End  Input  Output  CacheRead  CacheCreate  CacheHit%  Turns
 
-# Filter and/or emit JSON
-python tracker.py report --period month --source copilot-cli --model claude-sonnet-4
-python tracker.py report --period year --json
+# Scope to a different period (all | day | month | year)
+python3 tracker.py report --period month        # this month's sessions, detailed
+python3 tracker.py report --period all          # every session in the database
+
+# --summary: compact per-session view (Session Project Date Start End Turns Tokens CacheHit%)
+python3 tracker.py report --summary
+
+# --summary + period: aggregated roll-up grouped by period+model
+python3 tracker.py report --summary --period month
+python3 tracker.py report --summary --period year
+python3 tracker.py report --summary --period all
+
+# --by-project: group by project
+python3 tracker.py report --by-project                          # today, by project
+python3 tracker.py report --summary --period all --by-project   # all history, by project
+
+# Filter by model, emit JSON — combinable with any of the above
+python3 tracker.py report --period month --model claude-sonnet-4-6
+python3 tracker.py report --summary --period all --by-project --json
+
+# Configuration (persisted to ~/.tokentracer.toml)
+python3 tracker.py config set track_project_names true
 ```
 
-The database lives at `usage.db` next to `tracker.py` by default (override
-with `--db`). Re-running `collect` is **idempotent** — each day is recomputed
-from the cumulative source files and overwritten.
+The database lives at `~/.tokentracer/usage.db` by default (override with
+`--db`). Re-running `collect` is **idempotent** — each session is identified
+by its unique ID and re-collecting overwrites the stored row.
+
+### Cache efficiency
+
+Every text report opens with a cache efficiency summary:
+
+```
+Cache efficiency: 72% read from cache (~65% cost saved)
+```
+
+This is computed across all sessions in the database and shows what fraction of
+your total token budget came from the cache, and the approximate cost saving
+(cache reads cost ~10% of regular input tokens).
+
+## Configuration
+
+Settings are stored in `~/.tokentracer.toml`. You can edit the file directly
+or use `tracker.py config set <key> <value>` to update individual keys.
+
+```toml
+# ~/.tokentracer.toml
+
+[tracking]
+# Store the project/repo name on each session record.
+# Derived from the repository field (Copilot) or the cwd (Claude Code).
+# Off by default — enable if you want per-project breakdowns.
+# Override per-run with: --track-projects / --no-track-projects
+track_project_names = false
+```
+
+Set a value from the CLI (rewrites the file safely, preserving other keys):
+
+```bash
+python3 tracker.py config set track_project_names true
+```
+
+CLI flags `--track-projects` and `--no-track-projects` on the `collect`
+subcommand override the file value for that run only.
 
 ## Run it periodically
 
@@ -90,17 +173,18 @@ To remove it: `Unregister-ScheduledTask -TaskName "ai-token-tracer"`.
 
 ```
 ai-token/
-├─ tracker.py                # CLI entry (collect / report)
+├─ pyproject.toml            # packaging — pip/pipx/uv entry point
+├─ tracker.py                # CLI entry (collect / report / config)
 ├─ src/
-│  ├─ models.py             # ActivityRecord (frozen dataclass) + merge
+│  ├─ models.py             # SessionRecord (frozen dataclass) + merge
 │  ├─ collectors/           # one collector per AI tool surface
-│  │  ├─ base.py            # ActivityCollector protocol + time helpers
-│  │  ├─ copilot_cli.py     # Copilot CLI token + activity collector
-│  │  └─ claude_cli.py      # Claude Code CLI token collector
-│  ├─ store.py              # UsageStore (sqlite, idempotent upsert)
-│  ├─ report.py             # UsageReporter (day/month/year roll-ups)
+│  │  ├─ base.py            # ActivityCollector protocol + to_date / to_local_iso helpers
+│  │  ├─ copilot_cli.py     # Copilot CLI — one record per (session, model)
+│  │  └─ claude_cli.py      # Claude Code CLI — one record per JSONL session
+│  ├─ store.py              # UsageStore (sqlite, session-primary, idempotent upsert)
+│  ├─ report.py             # UsageReporter (day/month/year, cache efficiency, --sessions, --by-project)
 │  ├─ pipeline.py           # fluent TrackerPipeline
-│  └─ config.py             # paths, lookback, db location
+│  └─ config.py             # Paths, TOML loading, write_toml_setting
 ├─ tests/                   # pytest suite with fixtures
 └─ docs/                    # design docs and implementation plans
 ```
@@ -109,11 +193,11 @@ ai-token/
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q
+python3 -m pytest -q
 ```
 
 ## Extending
 
 Add a new surface by implementing the `ActivityCollector` protocol
-(`collect(since) -> Iterable[ActivityRecord]`) and adding it to the pipeline in
-`tracker.py`. No other module needs to change.
+(`collect(since: date) -> Iterable[SessionRecord]`) and adding it to the
+pipeline in `tracker.py`. No other module needs to change.

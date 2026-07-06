@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from src.models import ActivityRecord
+from src.models import SessionRecord
 from src.pipeline import TrackerPipeline
 from src.report import UsageReporter
 from src.store import UsageStore
@@ -25,23 +25,28 @@ class _StubCollector:
 
 
 def test_pipeline_merges_and_writes(tmp_db):
-    c1 = _StubCollector("copilot-cli", [ActivityRecord("2026-06-15", "copilot-cli", "m", "s", prompts=2)])
-    c2 = _StubCollector("copilot-cli", [ActivityRecord("2026-06-15", "copilot-cli", "m", "s", prompts=3)])
+    rec = SessionRecord(session_id="s1", source="claude_cli", model="claude-sonnet-4-6",
+                        date="2026-06-15", turns=3, input_tokens=100)
+    # Same session yielded by two collectors — last writer wins → 1 row
+    c1 = _StubCollector("claude_cli", [rec])
+    c2 = _StubCollector("claude_cli", [rec])
     result = (
         TrackerPipeline().add(c1).add(c2)
         .since(date(2026, 1, 1)).store(UsageStore(tmp_db)).run()
     )
-    assert result.records_written == 1  # merged to one row
-    rows = UsageReporter(tmp_db).report(period="day")
-    assert rows[0].prompts == 5
+    assert result.records_written == 1
+    output = UsageReporter(tmp_db).report(period="day")
+    assert isinstance(output, str)
 
 
 def test_pipeline_isolates_failing_collector(tmp_db):
-    good = _StubCollector("copilot-cli", [ActivityRecord("2026-06-15", "copilot-cli", "m", "s", prompts=1)])
-    bad = _StubCollector("copilot-cli", [], boom=True)
+    rec = SessionRecord(session_id="s1", source="claude_cli", model="claude-sonnet-4-6",
+                        date="2026-06-15", turns=1, input_tokens=50)
+    good = _StubCollector("claude_cli", [rec])
+    bad = _StubCollector("claude_cli", [], boom=True)
     result = TrackerPipeline().add(bad).add(good).since(date(2026, 1, 1)).store(UsageStore(tmp_db)).run()
     assert result.records_written == 1
-    assert any("copilot-cli" in e for e in result.errors)
+    assert any("claude_cli" in e for e in result.errors)
 
 
 def test_pipeline_requires_since_and_store(tmp_db):

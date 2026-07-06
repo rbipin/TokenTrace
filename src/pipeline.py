@@ -8,7 +8,7 @@ from datetime import date
 from typing import List
 
 from .collectors.base import ActivityCollector
-from .models import ActivityRecord, merge_records
+from .models import SessionRecord, merge_records
 from .store import UsageStore
 
 
@@ -56,10 +56,10 @@ class TrackerPipeline:
         if self._store is None:
             raise ValueError("store(store) must be set before run()")
 
-        records: list[ActivityRecord] = []
+        records: list[SessionRecord] = []
         errors: list[str] = []
 
-        def _collect(collector: ActivityCollector) -> tuple[list[ActivityRecord], str | None]:
+        def _collect(collector: ActivityCollector) -> tuple[list[SessionRecord], str | None]:
             try:
                 return list(collector.collect(self._since)), None
             except Exception as exc:

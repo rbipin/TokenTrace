@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tokentracer"
+version = "0.1.0"
+description = "Local token usage tracker for AI CLI tools (Claude Code, GitHub Copilot)"
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["claude", "copilot", "tokens", "ai", "usage", "tracker"]
+
+[project.scripts]
+tokentracer = "tracker:main"
+
+[tool.setuptools]
+py-modules = ["tracker"]
+
+[tool.setuptools.packages.find]
+include = ["src*"]

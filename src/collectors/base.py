@@ -1,61 +1,44 @@
-"""Collector protocol and shared helpers."""
-
+# src/collectors/base.py
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from pathlib import Path
-from typing import Iterable, Protocol, runtime_checkable
+from typing import Iterator, Protocol
 
-from ..models import ActivityRecord
+from ..models import SessionRecord
 
 
-@runtime_checkable
 class ActivityCollector(Protocol):
-    """A source of Copilot activity (one implementation per Copilot surface).
+    """Read-only source that yields session records."""
 
-    Implementations must be side-effect free with respect to the data they read
-    (read-only) and must only emit records dated on or after ``since``.
-    """
-
-    #: Stable identifier stored in the ``source`` column.
     source: str
 
-    def collect(self, since: date) -> Iterable[ActivityRecord]:
-        """Yield activity records for days on or after ``since``."""
+    def collect(self, since: date) -> Iterator[SessionRecord]:
         ...
 
 
-def to_local_date(ts: datetime | str | int | float) -> str:
-    """Normalize a timestamp to a local ``YYYY-MM-DD`` string.
+# ── timestamp helpers ────────────────────────────────────────────────────────
 
-    Accepts ``datetime``, ISO-8601 strings (``Z`` suffix allowed) and epoch
-    values in seconds or milliseconds.
-    """
-    dt = _to_datetime(ts)
-    return dt.astimezone().strftime("%Y-%m-%d")
-
-
-def to_local_iso(ts: datetime | str | int | float) -> str:
-    """Normalize a timestamp to a local ISO-8601 string (second precision)."""
-    return _to_datetime(ts).astimezone().replace(microsecond=0).isoformat()
-
-
-def _to_datetime(ts: datetime | str | int | float) -> datetime:
-    if isinstance(ts, datetime):
-        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+def _parse_ts(ts: object) -> datetime | None:
+    """Parse a timestamp that may be ISO-8601 string or epoch ms/s float."""
+    if ts is None:
+        return None
     if isinstance(ts, (int, float)):
-        # Heuristic: values that large are milliseconds since epoch.
         seconds = ts / 1000 if ts > 1e11 else ts
         return datetime.fromtimestamp(seconds, tz=timezone.utc)
-    text = str(ts).strip().replace("Z", "+00:00")
-    dt = datetime.fromisoformat(text)
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-
-
-def file_touched_since(path: Path, since: date) -> bool:
-    """True if ``path`` was modified on or after ``since`` (local time)."""
+    s = str(ts).strip().replace("Z", "+00:00")
     try:
-        mtime = datetime.fromtimestamp(path.stat().st_mtime).date()
-    except OSError:
-        return False
-    return mtime >= since
+        return datetime.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def to_date(ts: object) -> date | None:
+    """Convert any timestamp form to a local date, or None on failure."""
+    dt = _parse_ts(ts)
+    return dt.astimezone().date() if dt else None
+
+
+def to_local_iso(ts: object) -> str | None:
+    """Convert any timestamp form to a local ISO-8601 string, or None."""
+    dt = _parse_ts(ts)
+    return dt.astimezone().replace(microsecond=0).isoformat() if dt else None
