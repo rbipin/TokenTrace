@@ -65,3 +65,19 @@ def test_supabase_store_has_required_interface():
     assert hasattr(store_class, "name")
     assert hasattr(store_class, "upsert")
     assert hasattr(store_class, "close")
+
+
+def test_supabase_store_instantiates_via_class_path(tmp_path):
+    from src.stores.registry import instantiate_store
+    from src.stores.supabase import SupabaseStore
+
+    store = instantiate_store(
+        "supabase",
+        {"url": "https://x.supabase.co", "key": "secret"},
+        class_path="src.stores.supabase.SupabaseStore",
+    )
+    assert isinstance(store, SupabaseStore)
+    assert store._url == "https://x.supabase.co"
+    assert store._key == "secret"
+    assert store._table == "token_sessions"
+    store.close()

@@ -17,6 +17,9 @@ tokentracer = "tracker:main"
 sqlite = "src.stores.sqlite:SqliteStore"
 supabase = "src.stores.supabase:SupabaseStore"
 
+[project.optional-dependencies]
+supabase = ["supabase>=2.0"]
+
 [tool.setuptools]
 py-modules = ["tracker"]
 
