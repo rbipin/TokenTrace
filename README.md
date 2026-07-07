@@ -379,3 +379,11 @@ pipeline in `tracker.py`. Add a new **store backend** by implementing the
 `SessionStore` protocol and registering it via the `tokentracer.stores`
 entry-point group (see [Writing your own store](#writing-your-own-store)).
 No other module needs to change.
+
+## License
+
+Licensed under the [PolyForm Shield License 1.0.0](LICENSE.md) — free to
+use, modify, and distribute for any purpose except providing a product or
+service that competes with this software.
+
+Required Notice: Copyright Bipin Radhakrishnan (https://github.com/rbipin/TokenTrace)
