@@ -4,3 +4,9 @@
 # Off by default — enable if you want per-project breakdowns.
 # Override per-run with: --track-projects / --no-track-projects
 track_project_names = true
+
+[stores.supabase]
+url = "${SUPABASE_URL}"
+key = "${SUPABASE_KEY}"
+table = "token_sessions"
+
