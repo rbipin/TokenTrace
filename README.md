@@ -61,7 +61,7 @@ This usage analytics tool provides exact token counts per session, model, and to
 | Language | Python 3.11 |
 | Storage | SQLite |
 | Config | TOML, .env |
-| Testing | `pytest` |
+| Testing | pytest |
 
 <!-- /techstack -->
 
