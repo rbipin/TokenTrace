@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Registers ai-token-tracer as a macOS launchd scheduled job.
-# Runs tracker.py collect --lookback 1 daily at 23:50.
+# Runs "tokentracer collect --lookback 1" daily at 23:50 if the packaged
+# command is on PATH (pipx / uv tool install); otherwise falls back to
+# running tracker.py from this repo checkout with python3.
 # Run once as your normal user (no sudo required).
 # To remove:  launchctl unload ~/Library/LaunchAgents/com.ai-token-tracer.plist
 #             rm ~/Library/LaunchAgents/com.ai-token-tracer.plist
@@ -9,18 +11,33 @@ set -euo pipefail
 
 LABEL="com.ai-token-tracer"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TRACKER="$SCRIPT_DIR/tracker.py"
-PYTHON="$(command -v python3)"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
-# -- Validate paths -----------------------------------------------------------
-if [[ -z "$PYTHON" ]]; then
-    echo "Error: python3 not found on PATH" >&2
-    exit 1
-fi
-if [[ ! -f "$TRACKER" ]]; then
-    echo "Error: tracker.py not found at $TRACKER" >&2
-    exit 1
+# -- Locate the command to run ------------------------------------------------
+if command -v tokentracer &>/dev/null; then
+    # Packaged install: console script on PATH; db defaults to ~/.tokentracer/usage.db
+    PROG_ARGS="        <string>$(command -v tokentracer)</string>"
+    WORK_DIR="$HOME"
+    DATA_DIR="$HOME/.tokentracer"
+    mkdir -p "$DATA_DIR"
+    echo "Using packaged tokentracer: $(command -v tokentracer)"
+else
+    # Repo checkout: run tracker.py next to this script
+    TRACKER="$SCRIPT_DIR/tracker.py"
+    PYTHON="$(command -v python3 || true)"
+    if [[ -z "$PYTHON" ]]; then
+        echo "Error: neither 'tokentracer' nor 'python3' found on PATH" >&2
+        exit 1
+    fi
+    if [[ ! -f "$TRACKER" ]]; then
+        echo "Error: tracker.py not found at $TRACKER" >&2
+        exit 1
+    fi
+    PROG_ARGS="        <string>$PYTHON</string>
+        <string>$TRACKER</string>"
+    WORK_DIR="$SCRIPT_DIR"
+    DATA_DIR="$SCRIPT_DIR"
+    echo "Using repo checkout: $TRACKER (python: $PYTHON)"
 fi
 
 # -- Unload existing job if present ------------------------------------------
@@ -41,15 +58,14 @@ cat > "$PLIST" <<EOF
 
     <key>ProgramArguments</key>
     <array>
-        <string>$PYTHON</string>
-        <string>$TRACKER</string>
+$PROG_ARGS
         <string>collect</string>
         <string>--lookback</string>
         <string>1</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>$SCRIPT_DIR</string>
+    <string>$WORK_DIR</string>
 
     <key>StartCalendarInterval</key>
     <dict>
@@ -64,10 +80,10 @@ cat > "$PLIST" <<EOF
     <false/>
 
     <key>StandardOutPath</key>
-    <string>$SCRIPT_DIR/tracker.log</string>
+    <string>$DATA_DIR/tracker.log</string>
 
     <key>StandardErrorPath</key>
-    <string>$SCRIPT_DIR/tracker.log</string>
+    <string>$DATA_DIR/tracker.log</string>
 </dict>
 </plist>
 EOF
@@ -77,8 +93,8 @@ launchctl load "$PLIST"
 
 echo ""
 echo "Job registered: $LABEL"
-echo "  Runs daily at 23:50 | lookback 1 day | db -> $SCRIPT_DIR/usage.db"
-echo "  Log: $SCRIPT_DIR/tracker.log"
+echo "  Runs daily at 23:50 | lookback 1 day | db -> $DATA_DIR/usage.db"
+echo "  Log: $DATA_DIR/tracker.log"
 echo ""
 echo "Useful commands:"
 echo "  Run now : launchctl start $LABEL"
