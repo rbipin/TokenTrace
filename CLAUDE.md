@@ -110,7 +110,7 @@ table = "token_sessions"     # optional, this is the default
 4. Add tests under `tests/` mocking the client (see `tests/test_supabase_store.py`).
 5. Users enable it with a `[stores.<name>]` section in `~/.tokentracer.toml`; external packages can also provide stores via the same entry-point group — no code changes here needed.
 
-**Copilot CLI data details**: completed sessions write a `session.shutdown` event with `modelMetrics` (full per-model token breakdown). Active sessions fall back to summing `outputTokens` from `assistant.message` events. Each `(session_id, model)` pair becomes one `SessionRecord`.
+**Copilot CLI data details**: newer CLI versions nest event payloads under a `data` key and use `created_at`/`updated_at` session columns (older: `startedAt`/`endedAt`) — the collector supports both. Completed sessions write a `session.shutdown` event with `modelMetrics` (per-model token breakdown; counts flat in old format, under `usage` + `requests.count` in new). Active sessions fall back to summing `outputTokens` from `assistant.message` events (new format exposes only output tokens there; full input/cache counts arrive at shutdown). Each `(session_id, model)` pair becomes one `SessionRecord`.
 
 **Claude CLI data details**: each conversation is a JSONL file under `~/.claude/projects/<project-id>/<conv-id>.jsonl`. The file stem is the `session_id`. Assistant messages contain `message.usage` with `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`. One `SessionRecord` per JSONL file.
 

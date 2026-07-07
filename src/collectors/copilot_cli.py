@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import sys
 from datetime import date
 from pathlib import Path
 from typing import Iterator
@@ -30,18 +31,20 @@ class CopilotCliCollector:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         try:
-            rows = conn.execute(
-                "SELECT id, cwd, repository, startedAt, endedAt FROM sessions"
-            ).fetchall()
-        except sqlite3.OperationalError:
-            conn.close()
+            rows = self._query_sessions(conn)
+        except sqlite3.OperationalError as exc:
+            print(
+                f"Warning [copilot_cli]: could not read sessions table: {exc}",
+                file=sys.stderr,
+            )
             return
-        conn.close()
+        finally:
+            conn.close()
 
         for row in rows:
             session_id: str = row["id"]
-            start_ts = row["startedAt"]
-            end_ts = row["endedAt"]
+            start_ts = row["start_ts"]
+            end_ts = row["end_ts"]
 
             session_date = to_date(start_ts)
             if session_date is None or session_date < since:
@@ -63,6 +66,27 @@ class CopilotCliCollector:
             yield from self._parse_events(
                 session_id, date_str, start_iso, end_iso, project
             )
+
+    @staticmethod
+    def _query_sessions(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+        """Fetch sessions, supporting both old and new Copilot CLI schemas.
+
+        Old schema: startedAt / endedAt columns.
+        New schema (Copilot CLI >= mid-2026): created_at / updated_at.
+        """
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(sessions)")}
+        if {"startedAt", "endedAt"} <= cols:
+            start_col, end_col = "startedAt", "endedAt"
+        elif {"created_at", "updated_at"} <= cols:
+            start_col, end_col = "created_at", "updated_at"
+        else:
+            raise sqlite3.OperationalError(
+                f"unrecognized sessions schema (columns: {sorted(cols)})"
+            )
+        return conn.execute(
+            f"SELECT id, cwd, repository, "
+            f"{start_col} AS start_ts, {end_col} AS end_ts FROM sessions"
+        ).fetchall()
 
     def _parse_events(
         self,
@@ -92,19 +116,22 @@ class CopilotCliCollector:
             except json.JSONDecodeError:
                 continue
             event_type = event.get("type")
+            payload = event.get("data") or event  # new CLI nests under "data"
             if event_type == "session.shutdown":
                 yield from self._from_shutdown(
-                    event, session_id, date_str, start_ts, end_ts, project
+                    payload, session_id, date_str, start_ts, end_ts, project
                 )
                 return
             if event_type != "assistant.message":
                 continue
             turns += 1
-            if model == UNKNOWN_MODEL and event.get("model"):
-                model = event["model"]
-            usage = event.get("usage") or {}
+            if model == UNKNOWN_MODEL and payload.get("model"):
+                model = payload["model"]
+            usage = payload.get("usage") or {}
             totals["input_tokens"] += usage.get("inputTokens", 0)
-            totals["output_tokens"] += usage.get("outputTokens", 0)
+            totals["output_tokens"] += usage.get(
+                "outputTokens", payload.get("outputTokens", 0)
+            )
             totals["cache_read_tokens"] += usage.get("cacheReadTokens", 0)
             totals["cache_creation_tokens"] += usage.get("cacheWriteTokens", 0)
             totals["reasoning_tokens"] += usage.get("reasoningTokens", 0)
@@ -122,12 +149,16 @@ class CopilotCliCollector:
         )
 
     def _from_shutdown(
-        self, event: dict, session_id: str,
+        self, payload: dict, session_id: str,
         date_str: str, start_ts: str | None, end_ts: str | None,
         project: str | None,
     ) -> Iterator[SessionRecord]:
-        metrics: dict = event.get("modelMetrics") or {}
+        metrics: dict = payload.get("modelMetrics") or {}
         for model, m in metrics.items():
+            # Old format: token counts flat on the metric dict, plus "turns".
+            # New format: counts nested under "usage", turns under requests.count.
+            usage = m.get("usage") or m
+            turns = m.get("turns") or (m.get("requests") or {}).get("count", 0)
             yield SessionRecord(
                 session_id=session_id,
                 source=self.source,
@@ -136,10 +167,10 @@ class CopilotCliCollector:
                 start_ts=start_ts,
                 end_ts=end_ts,
                 project=project,
-                turns=m.get("turns", 0),
-                input_tokens=m.get("inputTokens", 0),
-                output_tokens=m.get("outputTokens", 0),
-                cache_read_tokens=m.get("cacheReadTokens", 0),
-                cache_creation_tokens=m.get("cacheWriteTokens", 0),
-                reasoning_tokens=m.get("reasoningTokens", 0),
+                turns=turns,
+                input_tokens=usage.get("inputTokens", 0),
+                output_tokens=usage.get("outputTokens", 0),
+                cache_read_tokens=usage.get("cacheReadTokens", 0),
+                cache_creation_tokens=usage.get("cacheWriteTokens", 0),
+                reasoning_tokens=usage.get("reasoningTokens", 0),
             )
