@@ -26,14 +26,19 @@ def _build_pipeline(cfg: Config, track_project_names: bool) -> TrackerPipeline:
     )
 
 
-def _build_stores(cfg: Config) -> list:
-    stores = [SqliteStore(cfg.db_path)]
+def _load_remote_stores(cfg: Config) -> list:
+    """Instantiate configured remote stores, warning on failures."""
+    stores = []
     for sc in cfg.remote_stores:
         try:
             stores.append(instantiate_store(sc.name, sc.params, sc.class_path))
         except Exception as exc:
             print(f"Warning: could not load store {sc.name!r}: {exc}", file=sys.stderr)
     return stores
+
+
+def _build_stores(cfg: Config) -> list:
+    return [SqliteStore(cfg.db_path), *_load_remote_stores(cfg)]
 
 
 def cmd_collect(args) -> int:
@@ -113,12 +118,7 @@ def cmd_sync(args) -> int:
         return 0
 
     sqlite_store = SqliteStore(db_path)
-    remote_stores = []
-    for sc in cfg.remote_stores:
-        try:
-            remote_stores.append(instantiate_store(sc.name, sc.params, sc.class_path))
-        except Exception as exc:
-            print(f"Warning: could not load store {sc.name!r}: {exc}", file=sys.stderr)
+    remote_stores = _load_remote_stores(cfg)
 
     if not remote_stores:
         print("No remote stores could be loaded.")

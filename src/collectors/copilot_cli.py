@@ -76,7 +76,13 @@ class CopilotCliCollector:
         if not events_path.exists():
             return
 
-        # Try shutdown event first (has per-model breakdown)
+        # Single pass: prefer the shutdown event (per-model breakdown), while
+        # accumulating assistant-message totals as the fallback.
+        totals = dict(input_tokens=0, output_tokens=0, cache_read_tokens=0,
+                      cache_creation_tokens=0, reasoning_tokens=0)
+        turns = 0
+        model = UNKNOWN_MODEL
+
         for line in events_path.read_text(encoding="utf-8", errors="replace").splitlines():
             line = line.strip()
             if not line:
@@ -85,15 +91,34 @@ class CopilotCliCollector:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if event.get("type") == "session.shutdown":
+            event_type = event.get("type")
+            if event_type == "session.shutdown":
                 yield from self._from_shutdown(
                     event, session_id, date_str, start_ts, end_ts, project
                 )
                 return
+            if event_type != "assistant.message":
+                continue
+            turns += 1
+            if model == UNKNOWN_MODEL and event.get("model"):
+                model = event["model"]
+            usage = event.get("usage") or {}
+            totals["input_tokens"] += usage.get("inputTokens", 0)
+            totals["output_tokens"] += usage.get("outputTokens", 0)
+            totals["cache_read_tokens"] += usage.get("cacheReadTokens", 0)
+            totals["cache_creation_tokens"] += usage.get("cacheWriteTokens", 0)
+            totals["reasoning_tokens"] += usage.get("reasoningTokens", 0)
 
-        # Fall back to summing assistant messages
-        yield self._from_assistant_events(
-            events_path, session_id, date_str, start_ts, end_ts, project
+        yield SessionRecord(
+            session_id=session_id,
+            source=self.source,
+            model=model,
+            date=date_str,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            project=project,
+            turns=turns,
+            **totals,
         )
 
     def _from_shutdown(
@@ -118,43 +143,3 @@ class CopilotCliCollector:
                 cache_creation_tokens=m.get("cacheWriteTokens", 0),
                 reasoning_tokens=m.get("reasoningTokens", 0),
             )
-
-    def _from_assistant_events(
-        self, events_path: Path, session_id: str,
-        date_str: str, start_ts: str | None, end_ts: str | None,
-        project: str | None,
-    ) -> SessionRecord:
-        totals = dict(input_tokens=0, output_tokens=0, cache_read_tokens=0,
-                      cache_creation_tokens=0, reasoning_tokens=0)
-        turns = 0
-        model = UNKNOWN_MODEL
-        for line in events_path.read_text(encoding="utf-8", errors="replace").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if event.get("type") != "assistant.message":
-                continue
-            turns += 1
-            if model == UNKNOWN_MODEL and event.get("model"):
-                model = event["model"]
-            usage = event.get("usage") or {}
-            totals["input_tokens"] += usage.get("inputTokens", 0)
-            totals["output_tokens"] += usage.get("outputTokens", 0)
-            totals["cache_read_tokens"] += usage.get("cacheReadTokens", 0)
-            totals["cache_creation_tokens"] += usage.get("cacheWriteTokens", 0)
-            totals["reasoning_tokens"] += usage.get("reasoningTokens", 0)
-        return SessionRecord(
-            session_id=session_id,
-            source=self.source,
-            model=model,
-            date=date_str,
-            start_ts=start_ts,
-            end_ts=end_ts,
-            project=project,
-            turns=turns,
-            **totals,
-        )

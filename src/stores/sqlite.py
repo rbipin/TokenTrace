@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 from ..models import SessionRecord
@@ -71,7 +72,7 @@ class SqliteStore:
 
     def _migrate(self) -> None:
         """Run database migrations: create tables and drop old schema if needed."""
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             tables = {
                 r[0]
                 for r in conn.execute(
@@ -102,7 +103,7 @@ class SqliteStore:
         """
         if not records:
             return 0
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             conn.executemany(
                 _UPSERT,
                 [
@@ -139,7 +140,7 @@ class SqliteStore:
             AND l.store_name = ?
         WHERE l.session_id IS NULL
         """
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(_UNSYNCED, (store_name,)).fetchall()
         return [
             SessionRecord(
@@ -161,7 +162,7 @@ class SqliteStore:
         INSERT OR IGNORE INTO sync_log (session_id, source, model, store_name, synced_at)
         VALUES (?, ?, ?, ?, datetime('now'))
         """
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             conn.executemany(
                 _MARK_SYNCED,
                 [(r.session_id, r.source, r.model, store_name) for r in records],
