@@ -56,6 +56,7 @@ uv tool install https://github.com/rbipin/TokenTrace/releases/download/v0.1.0/to
 pip install https://github.com/rbipin/TokenTrace/releases/download/v0.1.0/tokentracer-0.1.0-py3-none-any.whl
 
 # from source at a tag
+uv tool install git+https://github.com/rbipin/TokenTrace@v0.1.0
 pip install git+https://github.com/rbipin/TokenTrace@v0.1.0
 ```
 
@@ -149,7 +150,14 @@ your total token budget came from the cache, and the approximate cost saving
 
 ## Configuration
 
-Settings are stored in `~/.tokentracer.toml`. You can edit the file directly
+Settings are stored in `~/.tokentracer.toml` in your home directory:
+
+| OS | Config file | Env file (secrets) |
+| --- | --- | --- |
+| macOS / Linux | `~/.tokentracer.toml` | `~/.tokentracer.env` |
+| Windows | `C:\Users\<you>\.tokentracer.toml` | `C:\Users\<you>\.tokentracer.env` |
+
+You can edit the file directly
 or use `tracker.py config set <key> <value>` to update individual keys.
 
 ```toml
