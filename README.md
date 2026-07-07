@@ -49,6 +49,12 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture: coll
 
 ## Installation
 
+The **base package** covers local collection and reporting (`collect` /
+`report` / `config` — standard library only). If you want to push records to
+a **remote store** (e.g. Supabase via `tokentracer sync`), install with the
+store's extra — e.g. `tokentracer[supabase]` — otherwise `collect`/`sync`
+will warn that the store's client library is missing.
+
 Install a released version straight from GitHub Releases (replace `0.1.0` with the latest version):
 
 ```bash
@@ -61,6 +67,16 @@ pip install https://github.com/rbipin/TokenTrace/releases/download/v0.1.0/tokent
 # from source at a tag
 uv tool install git+https://github.com/rbipin/TokenTrace@v0.1.0
 pip install git+https://github.com/rbipin/TokenTrace@v0.1.0
+
+# with the Supabase store extra
+uv tool install "tokentracer[supabase] @ git+https://github.com/rbipin/TokenTrace@v0.1.0"
+pip install "tokentracer[supabase] @ git+https://github.com/rbipin/TokenTrace@v0.1.0"
+```
+
+To add an extra to an existing uv tool install, re-run with `--force`:
+
+```bash
+uv tool install --force "tokentracer[supabase] @ git+https://github.com/rbipin/TokenTrace@v0.1.0"
 ```
 
 **From the latest main branch:**
@@ -83,6 +99,7 @@ tokentracer report
 ```bash
 git clone https://github.com/rbipin/TokenTrace
 pipx install .          # or: uv tool install .
+# with the Supabase store: pipx install ".[supabase]"  /  uv tool install ".[supabase]"
 ```
 
 The database is created at `~/.tokentracer/usage.db` on first run. Override with `--db`.
