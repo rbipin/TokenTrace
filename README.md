@@ -46,27 +46,48 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 
 ## Installation
 
+Install a released version straight from GitHub Releases (replace `0.1.0` with the latest version):
+
+```bash
+# uv
+uv tool install https://github.com/rbipin/TokenTrace/releases/download/v0.1.0/tokentracer-0.1.0-py3-none-any.whl
+
+# pip
+pip install https://github.com/rbipin/TokenTrace/releases/download/v0.1.0/tokentracer-0.1.0-py3-none-any.whl
+
+# from source at a tag
+pip install git+https://github.com/rbipin/TokenTrace@v0.1.0
+```
+
+**From the latest main branch:**
+
 **pipx (recommended):**
 ```bash
-pipx install tokentracer
+pipx install git+https://github.com/rbipin/TokenTrace
 tokentracer collect
 tokentracer report
 ```
 
 **uv:**
 ```bash
-uv tool install tokentracer
+uv tool install git+https://github.com/rbipin/TokenTrace
 tokentracer collect
 tokentracer report
 ```
 
-**From source:**
+**From source (clone locally):**
 ```bash
 git clone https://github.com/rbipin/TokenTracer
 pipx install .          # or: uv tool install .
 ```
 
 The database is created at `~/.tokentracer/usage.db` on first run. Override with `--db`.
+
+### Releasing (maintainers)
+
+1. Bump `version` in `pyproject.toml` and commit to `main`.
+2. `git tag v<version> && git push origin v<version>`.
+3. CI tests, verifies the tag matches the version, builds, and publishes the GitHub Release automatically.
 
 ## Usage
 
