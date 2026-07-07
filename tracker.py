@@ -90,7 +90,7 @@ def _run_sync(
         try:
             if pending:
                 store.upsert(pending)
-            sqlite_store.mark_synced(pending, store.name)
+                sqlite_store.mark_synced(pending, store.name)
             store.close()
             result[store.name] = {"pushed": len(pending), "failed": False}
         except Exception as exc:
