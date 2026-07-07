@@ -1,6 +1,7 @@
 <img width="1536" height="800" alt="TokenTrace" src="https://github.com/user-attachments/assets/25f04f4b-ecc8-4b9f-95be-52098c9bffed" />
 
 # Token Trace
+[![CI](https://github.com/rbipin/TokenTrace/actions/workflows/ci.yml/badge.svg)](https://github.com/rbipin/TokenTrace/actions/workflows/ci.yml) [![Release](https://github.com/rbipin/TokenTrace/actions/workflows/release.yml/badge.svg)](https://github.com/rbipin/TokenTrace/actions/workflows/release.yml)
 
 A local, periodic tracker for your **AI tool token usage** (GitHub Copilot CLI
 and Claude Code CLI). It records activity at a **session grain** (one row per
@@ -38,6 +39,8 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 |---|---|---|
 | Copilot CLI | `~/.copilot/session-store.db` + `session-state/<id>/events.jsonl` | sessions, turns, per-model token counts (input, output, cache read/write, reasoning) |
 | Claude Code CLI | `~/.claude/projects/**/*.jsonl` | per-session token counts (input, output, cache read/write) |
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture: collect data flow, exact source files and schemas, storage, sync, and extension points.
 
 ## Requirements
 
