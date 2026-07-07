@@ -1,15 +1,31 @@
+<h1 align="center">Token Trace</h1>
+
+<p align="center">
+  A local, periodic tracker for your AI tool token usage — session-grain records from GitHub Copilot CLI and Claude Code CLI, stored in SQLite, rolled up however you want.
+</p>
+
+<p align="center">
+  <a href="https://github.com/rbipin/TokenTrace/actions/workflows/ci.yml"><img src="https://github.com/rbipin/TokenTrace/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/rbipin/TokenTrace/actions/workflows/release.yml"><img src="https://github.com/rbipin/TokenTrace/actions/workflows/release.yml/badge.svg" alt="Release" /></a>
+  <img src="https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white" />
+  <img src="https://img.shields.io/badge/SQLite-local--first-003B57?logo=sqlite" />
+  <img src="https://img.shields.io/badge/runtime%20deps-stdlib%20only-brightgreen" />
+</p>
+
+<br />
+
 <img width="1536" height="800" alt="TokenTrace" src="https://github.com/user-attachments/assets/25f04f4b-ecc8-4b9f-95be-52098c9bffed" />
 
-# Token Trace
-[![CI](https://github.com/rbipin/TokenTrace/actions/workflows/ci.yml/badge.svg)](https://github.com/rbipin/TokenTrace/actions/workflows/ci.yml) [![Release](https://github.com/rbipin/TokenTrace/actions/workflows/release.yml/badge.svg)](https://github.com/rbipin/TokenTrace/actions/workflows/release.yml)
+---
+
+## Overview
+
 <!-- description -->
-A local, periodic tracker for your **AI tool token usage** (GitHub Copilot CLI
-and Claude Code CLI). It records activity at a **session grain** (one row per
+Token Trace records AI tool activity at a **session grain** (one row per
 session per model) so you can roll it up by day, month, or year — and drill
 into individual sessions or projects.
 <!-- /description -->
 
-## Purpose
 <!-- purpose -->
 I use AI tools heavily from the CLI and noticed that none of the existing AI harnesses — Copilot, Claude Code, etc. — give a meaningful token-level breakdown or trend over time. They show activity in the moment but offer no persistent view of how much you're consuming or how efficiently you're using it. No dashboard exists today that tracks and reports this across tools in one place.
 
@@ -17,15 +33,6 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 <!-- /purpose -->
 
 **Built entirely with Claude Code** — requirements, direction, and corrections were provided by me; implementation was handled by Claude.
-
-## Outcome
-<!-- outcome -->
-- Know exactly how many tokens I'm consuming per session, per model, per tool — not a rough estimate, actual counts
-- See cache efficiency: how much of your input came from cache and how much cost that saved
-- Spot trends: am I using more tokens this month than last? Is one model eating disproportionately more?
-- See which projects or contexts drive the heaviest usage (opt-in)
-- Have raw data ready for a heatmap (usage intensity by day) when I get around to building the visualisation layer
-<!-- /outcome -->
 
 > **Why only CLI surfaces?**
 >
@@ -36,21 +43,104 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 > persist it locally. See `docs/plans/2026-06-15-copilot-usage-tracker-design.md`
 > for the original rationale.
 
-## Data sources
+---
+
+## Features
+
+<!-- outcome -->
+| | |
+|---|---|
+| **Exact token counts** | Per session, per model, per tool — actual counts, not estimates |
+| **Cache efficiency** | See how much of your input came from cache and the approximate cost saved |
+| **Trends** | Roll up by day, month, or year — spot which model eats disproportionately more |
+| **Per-project breakdowns** | See which projects or contexts drive the heaviest usage (opt-in) |
+| **Idempotent collection** | Re-running `collect` overwrites session rows — safe to schedule hourly |
+| **Remote sync** | Push records to pluggable remote stores (Supabase built in) via `tokentracer sync` |
+| **Context labels** | Tag each machine's usage as `work` / `personal` and keep them separable |
+| **Heatmap-ready data** | Raw data ready for a usage-intensity heatmap when the visual layer lands |
+<!-- /outcome -->
+
+---
+
+## Data Sources
 
 | Source | Location | Metrics |
 |---|---|---|
 | Copilot CLI | `~/.copilot/session-store.db` + `session-state/<id>/events.jsonl` | sessions, turns, per-model token counts (input, output, cache read/write, reasoning) |
 | Claude Code CLI | `~/.claude/projects/**/*.jsonl` | per-session token counts (input, output, cache read/write) |
 
+---
+
+## Tech Stack
+
+| Layer | Choice |
+|---|---|
+| Language | Python 3.11+ — standard library only at runtime (`tomllib` for config) |
+| Storage | SQLite — `~/.tokentracer/usage.db`, idempotent upserts, per-store sync tracking |
+| Remote stores | Pluggable `SessionStore` protocol via the `tokentracer.stores` entry-point group; Supabase built in (optional extra) |
+| Config | TOML — `~/.tokentracer.toml`, secrets via env vars or `~/.tokentracer.env` |
+| Packaging | `pyproject.toml` console script `tokentracer` — installable with pipx / uv / pip |
+| Testing | pytest (`pip install -r requirements.txt`) |
+
+---
+
+## Architecture
+
+The tracker follows an **Open/Closed pipeline**: adding a new data source only requires implementing the `ActivityCollector` protocol and registering it in `tracker.py`. No other module needs to change.
+
+```
+Collector.collect(since)          one collector per AI tool surface
+  └── List[SessionRecord]         frozen dataclass, one per (session, model)
+        └── merge_records         deduplicates by (session_id, source, model)
+              └── SqliteStore.upsert   last-write-wins, idempotent
+                    └── UsageReporter  day / month / year / all roll-ups
+                    └── tokentracer sync → remote stores (e.g. Supabase)
+```
+
+**Key invariants:**
+
+- `collect` is always **idempotent** — re-running overwrites existing session rows. Merge key is `(session_id, source, model)`.
+- Upsert is **last-write-wins** — no summation across runs.
+- Collectors are **read-only** with respect to their source files.
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture: collect data flow, exact source files and schemas, storage, sync, and extension points.
 
-## Requirements
+---
 
-- Python 3.11+ (standard library only at runtime; `tomllib` used for config).
-- `pytest` only for running the tests: `pip install -r requirements.txt`.
+## Project Structure
 
-## Installation
+```
+ai-token/
+├─ pyproject.toml            # packaging — pip/pipx/uv entry point
+├─ tracker.py                # CLI entry (collect / report / config / sync)
+├─ src/
+│  ├─ models.py             # SessionRecord (frozen dataclass) + merge
+│  ├─ collectors/           # one collector per AI tool surface
+│  │  ├─ base.py            # ActivityCollector protocol + to_date / to_local_iso helpers
+│  │  ├─ copilot_cli.py     # Copilot CLI — one record per (session, model)
+│  │  └─ claude_cli.py      # Claude Code CLI — one record per JSONL session
+│  ├─ stores/               # pluggable store backends (entry-point registry)
+│  │  ├─ __init__.py        # SessionStore protocol
+│  │  ├─ registry.py        # store discovery + instantiation (env var expansion)
+│  │  ├─ sqlite.py          # SqliteStore — local db, idempotent upsert, sync tracking
+│  │  └─ supabase.py        # SupabaseStore — remote Supabase sink
+│  ├─ report.py             # UsageReporter (day/month/year, cache efficiency, --summary, --by-project)
+│  ├─ pipeline.py           # fluent TrackerPipeline
+│  └─ config.py             # Paths, TOML loading, write_toml_setting
+├─ tests/                   # pytest suite with fixtures
+└─ docs/                    # design docs and implementation plans
+```
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- Python 3.11+ (standard library only at runtime)
+- `pytest` only for running the tests: `pip install -r requirements.txt`
+
+### Install
 
 The **base package** covers local collection and reporting (`collect` /
 `report` / `config` — standard library only). If you want to push records to
@@ -58,7 +148,7 @@ a **remote store** (e.g. Supabase via `tokentracer sync`), install with the
 store's extra — e.g. `tokentracer[supabase]` — otherwise `collect`/`sync`
 will warn that the store's client library is missing.
 
-Install a released version straight from GitHub Releases (replace `0.1.0` with the latest version):
+**From a GitHub Release** (replace `0.1.0` with the latest version):
 
 ```bash
 # uv
@@ -84,34 +174,32 @@ uv tool install --force "tokentracer[supabase] @ git+https://github.com/rbipin/T
 
 **From the latest main branch:**
 
-**pipx (recommended):**
 ```bash
+# pipx (recommended)
 pipx install git+https://github.com/rbipin/TokenTrace
-tokentracer collect
-tokentracer report
-```
 
-**uv:**
-```bash
+# uv
 uv tool install git+https://github.com/rbipin/TokenTrace
-tokentracer collect
-tokentracer report
 ```
 
 **From source (clone locally):**
+
 ```bash
 git clone https://github.com/rbipin/TokenTrace
 pipx install .          # or: uv tool install .
 # with the Supabase store: pipx install ".[supabase]"  /  uv tool install ".[supabase]"
 ```
 
+### First run
+
+```bash
+tokentracer collect
+tokentracer report
+```
+
 The database is created at `~/.tokentracer/usage.db` on first run. Override with `--db`.
 
-### Releasing (maintainers)
-
-1. Bump `version` in `pyproject.toml` and commit to `main`.
-2. `git tag v<version> && git push origin v<version>`.
-3. CI tests, verifies the tag matches the version, builds, and publishes the GitHub Release automatically.
+---
 
 ## Usage
 
@@ -171,6 +259,8 @@ This is computed across all sessions in the database and shows what fraction of
 your total token budget came from the cache, and the approximate cost saving
 (cache reads cost ~10% of regular input tokens).
 
+---
+
 ## Configuration
 
 Settings are stored in `~/.tokentracer.toml` in your home directory:
@@ -210,7 +300,9 @@ python3 tracker.py config set context work
 CLI flags `--track-projects` / `--no-track-projects` and `--context <label>`
 on the `collect` subcommand override the file values for that run only.
 
-## Remote stores (sync)
+---
+
+## Remote Stores (sync)
 
 Beyond the local SQLite database, TokenTracer can push session records to
 **remote stores** via a pluggable stores registry. Each store implements the
@@ -316,8 +408,9 @@ TokenTracer's code:
 Alternatively, skip packaging and point directly at a class with
 `class = "my_module.MyStore"` in the store's config section.
 
+---
 
-## Run it periodically
+## Run It Periodically
 
 **Windows (Task Scheduler):**
 
@@ -340,29 +433,7 @@ To remove it: `Unregister-ScheduledTask -TaskName "ai-token-tracer"`.
 **macOS (launchd):** create a plist in `~/Library/LaunchAgents/` that runs
 `python3 /path/to/tracker.py collect` on an hourly interval.
 
-## Project layout
-
-```
-ai-token/
-├─ pyproject.toml            # packaging — pip/pipx/uv entry point
-├─ tracker.py                # CLI entry (collect / report / config)
-├─ src/
-│  ├─ models.py             # SessionRecord (frozen dataclass) + merge
-│  ├─ collectors/           # one collector per AI tool surface
-│  │  ├─ base.py            # ActivityCollector protocol + to_date / to_local_iso helpers
-│  │  ├─ copilot_cli.py     # Copilot CLI — one record per (session, model)
-│  │  └─ claude_cli.py      # Claude Code CLI — one record per JSONL session
-│  ├─ stores/               # pluggable store backends (entry-point registry)
-│  │  ├─ __init__.py        # SessionStore protocol
-│  │  ├─ registry.py        # store discovery + instantiation (env var expansion)
-│  │  ├─ sqlite.py          # SqliteStore — local db, idempotent upsert, sync tracking
-│  │  └─ supabase.py        # SupabaseStore — remote Supabase sink
-│  ├─ report.py             # UsageReporter (day/month/year, cache efficiency, --sessions, --by-project)
-│  ├─ pipeline.py           # fluent TrackerPipeline
-│  └─ config.py             # Paths, TOML loading, write_toml_setting
-├─ tests/                   # pytest suite with fixtures
-└─ docs/                    # design docs and implementation plans
-```
+---
 
 ## Development
 
@@ -371,7 +442,7 @@ pip install -r requirements.txt
 python3 -m pytest -q
 ```
 
-## Extending
+### Extending
 
 Add a new **surface** by implementing the `ActivityCollector` protocol
 (`collect(since: date) -> Iterable[SessionRecord]`) and adding it to the
@@ -379,6 +450,14 @@ pipeline in `tracker.py`. Add a new **store backend** by implementing the
 `SessionStore` protocol and registering it via the `tokentracer.stores`
 entry-point group (see [Writing your own store](#writing-your-own-store)).
 No other module needs to change.
+
+### Releasing (maintainers)
+
+1. Bump `version` in `pyproject.toml` and commit to `main`.
+2. `git tag v<version> && git push origin v<version>`.
+3. CI tests, verifies the tag matches the version, builds, and publishes the GitHub Release automatically.
+
+---
 
 ## License
 
