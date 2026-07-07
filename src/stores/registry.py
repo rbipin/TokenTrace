@@ -11,50 +11,41 @@ if TYPE_CHECKING:
     from . import SessionStore
 
 
-class StoreNotFound(Exception):
-    """Raised when a requested store is not found."""
-
-    def __init__(self, name: str) -> None:
-        """Initialize the exception with the store name."""
-        super().__init__(f"Store not found: {name}")
-        self.name = name
-
-
-def discover_stores() -> dict[str, type[SessionStore]]:
+def load_store_registry() -> dict[str, type[SessionStore]]:
     """Discover available stores via entry points.
 
-    Returns a dict mapping store names to store classes. Includes built-in
-    stores as a fallback if entry points are not found.
+    Returns a dict mapping entry-point names to store classes. Falls back to
+    the built-in SqliteStore if no entry points are found.
 
     Returns:
         Dict mapping store names (e.g., "sqlite") to store classes.
     """
     stores: dict[str, type[SessionStore]] = {}
 
-    # Try to discover stores via entry points
     try:
         eps = importlib.metadata.entry_points()
         # Handle Python version differences:
         # - Python 3.10+ returns SelectableGroups (subscriptable)
         # - Python 3.9 returns a dict
         if hasattr(eps, "select"):
-            # Python 3.10+
             store_eps = eps.select(group="tokentracer.stores")
         elif isinstance(eps, dict):
-            # Python 3.9
             store_eps = eps.get("tokentracer.stores", [])
         else:
-            # Fallback: treat as dict-like
             store_eps = eps.get("tokentracer.stores", [])
 
         for ep in store_eps:
-            store_class = ep.load()
-            if hasattr(store_class, "name"):
-                stores[store_class.name] = store_class
+            try:
+                store_class = ep.load()
+                stores[ep.name] = store_class
+            except Exception as exc:
+                print(
+                    f"Warning: could not load store entry point {ep.name!r}: {exc}",
+                    file=sys.stderr,
+                )
 
-    except Exception:
-        # If entry point discovery fails, fall back to built-in stores
-        pass
+    except Exception as exc:
+        print(f"Warning: entry point discovery failed: {exc}", file=sys.stderr)
 
     # Fall back to built-in stores if none were discovered
     if not stores:
@@ -65,46 +56,39 @@ def discover_stores() -> dict[str, type[SessionStore]]:
     return stores
 
 
-def get_store(name: str) -> type[SessionStore]:
-    """Retrieve a store class by name.
-
-    Supports both entry point discovery and a class= escape hatch for
-    custom store implementations.
+def instantiate_store(
+    name: str,
+    params: dict,
+    class_path: str | None = None,
+) -> "SessionStore":
+    """Instantiate a store by name or class path.
 
     Args:
-        name: Store name (e.g., "sqlite") or class path (e.g.,
-              "class=module.path:ClassName").
+        name: Store name used for registry lookup (e.g., "sqlite").
+        params: Constructor keyword arguments passed to the store class.
+        class_path: Optional dotted import path to a store class
+            (e.g., "src.stores.sqlite.SqliteStore"). If provided, the registry
+            is bypassed and this class is loaded directly.
 
     Returns:
-        The store class for the given name.
+        An instantiated SessionStore.
 
     Raises:
-        StoreNotFound: If the store name is not found.
-        ModuleNotFoundError: If a class= path references a non-existent module.
-        AttributeError: If a class= path references a non-existent class.
+        ValueError: If the store name is not found and no class_path is given.
+        ModuleNotFoundError: If class_path references a non-existent module.
+        AttributeError: If class_path references a non-existent class.
     """
-    # Handle class= escape hatch for custom stores
-    if name.startswith("class="):
-        path = name[6:]  # Remove "class=" prefix
-        if ":" not in path:
-            raise StoreNotFound(
-                f"Invalid class path: {name} (expected format: class=module.path:ClassName)"
-            )
-        module_path, class_name = path.rsplit(":", 1)
-        try:
-            module = importlib.import_module(module_path)
-            store_class = getattr(module, class_name)
-            return store_class
-        except ModuleNotFoundError as e:
-            raise StoreNotFound(f"Cannot import {name}: {e}") from e
-        except AttributeError as e:
-            raise StoreNotFound(f"Cannot import {name}: {e}") from e
+    if class_path is not None:
+        module_path, _, class_name = class_path.rpartition(".")
+        module = importlib.import_module(module_path)
+        store_class = getattr(module, class_name)
+        return store_class(**params)
 
-    # Discover stores and look up by name
-    stores = discover_stores()
-    if name not in stores:
-        available = ", ".join(sorted(stores.keys()))
-        raise StoreNotFound(
-            f"Store '{name}' not found. Available: {available}"
+    registry = load_store_registry()
+    if name not in registry:
+        raise ValueError(
+            f"Unknown store: {name!r}. Install a package providing a "
+            "'tokentracer.stores' entry point for it, or use "
+            "class_path='module.ClassName' in your config."
         )
-    return stores[name]
+    return registry[name](**params)
