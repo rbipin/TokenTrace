@@ -52,8 +52,10 @@ def load_store_registry() -> dict[str, type[SessionStore]]:
     # Fall back to built-in stores if none were discovered
     if not stores:
         from .sqlite import SqliteStore
+        from .supabase import SupabaseStore
 
         stores["sqlite"] = SqliteStore
+        stores["supabase"] = SupabaseStore
 
     return stores
 

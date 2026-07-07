@@ -1,6 +1,6 @@
 # Supabase Remote Store Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add a `SupabaseStore` class that syncs local `SessionRecord`s to a Supabase `token_sessions` table, plugging into the existing `tokentracer sync` pipeline with zero changes to that pipeline.
 
@@ -46,7 +46,7 @@
 - Produces: `_expand_env_vars(params: dict) -> dict` — public at module level in `src/config.py`
 - Produces: `instantiate_store()` now expands env vars in `params` before passing to constructor
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to the bottom of `tests/test_config_stores.py`:
 
@@ -90,7 +90,7 @@ def test_instantiate_store_expands_env_vars(monkeypatch, tmp_path):
     store.close()
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 python3 -m pytest tests/test_config_stores.py::test_expand_env_vars_substitutes_known_var tests/test_config_stores.py::test_expand_env_vars_raises_for_missing_var tests/test_config_stores.py::test_expand_env_vars_passthrough_non_string tests/test_config_stores.py::test_expand_env_vars_passthrough_no_placeholder tests/test_config_stores.py::test_instantiate_store_expands_env_vars -v
@@ -98,7 +98,7 @@ python3 -m pytest tests/test_config_stores.py::test_expand_env_vars_substitutes_
 
 Expected: `ImportError: cannot import name '_expand_env_vars' from 'src.config'`
 
-- [ ] **Step 3: Add `_expand_env_vars` to `src/config.py`**
+- [x] **Step 3: Add `_expand_env_vars` to `src/config.py`**
 
 Add after the existing imports at the top of `src/config.py` (after `from pathlib import Path`):
 
@@ -129,7 +129,7 @@ def _expand_env_vars(params: dict) -> dict:
     return result
 ```
 
-- [ ] **Step 4: Wire `_expand_env_vars` into `instantiate_store` in `src/stores/registry.py`**
+- [x] **Step 4: Wire `_expand_env_vars` into `instantiate_store` in `src/stores/registry.py`**
 
 Add this import at the top of `src/stores/registry.py` (after the existing imports):
 
@@ -149,7 +149,7 @@ def instantiate_store(
     # ... rest of existing body unchanged ...
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 ```bash
 python3 -m pytest tests/test_config_stores.py -v
@@ -157,7 +157,7 @@ python3 -m pytest tests/test_config_stores.py -v
 
 Expected: all tests in the file pass, including the five new ones.
 
-- [ ] **Step 6: Run full test suite to check for regressions**
+- [x] **Step 6: Run full test suite to check for regressions**
 
 ```bash
 python3 -m pytest -q
@@ -165,7 +165,7 @@ python3 -m pytest -q
 
 Expected: all tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/config.py src/stores/registry.py tests/test_config_stores.py
@@ -184,7 +184,7 @@ git commit -m "feat: add env var expansion for store params"
 - Consumes: `SessionRecord` from `src.models` (fields: `session_id`, `source`, `model`, `date`, `start_ts`, `end_ts`, `project`, `turns`, `input_tokens`, `output_tokens`, `cache_creation_tokens`, `cache_read_tokens`)
 - Produces: `SupabaseStore(url: str, key: str, table: str = "token_sessions")` — implements `SessionStore` Protocol
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_supabase_store.py`:
 
@@ -318,7 +318,7 @@ def test_name_attribute():
     assert store.name == "supabase"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 python3 -m pytest tests/test_supabase_store.py -v
@@ -326,7 +326,7 @@ python3 -m pytest tests/test_supabase_store.py -v
 
 Expected: `ModuleNotFoundError: No module named 'src.stores.supabase'`
 
-- [ ] **Step 3: Create `src/stores/supabase.py`**
+- [x] **Step 3: Create `src/stores/supabase.py`**
 
 ```python
 """Supabase remote store for TokenTracer."""
@@ -397,7 +397,7 @@ class SupabaseStore:
         self._client_cache = None
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 python3 -m pytest tests/test_supabase_store.py -v
@@ -405,7 +405,7 @@ python3 -m pytest tests/test_supabase_store.py -v
 
 Expected: all 11 tests pass. (Note: `supabase-py` does not need to be installed — `_create_client` is patched in every test that calls `upsert`; the import-error path is not tested here.)
 
-- [ ] **Step 5: Run full test suite to check for regressions**
+- [x] **Step 5: Run full test suite to check for regressions**
 
 ```bash
 python3 -m pytest -q
@@ -413,7 +413,7 @@ python3 -m pytest -q
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/stores/supabase.py tests/test_supabase_store.py
@@ -433,7 +433,7 @@ git commit -m "feat: add SupabaseStore remote store"
 - Consumes: `SupabaseStore` from Task 2
 - Produces: `from src.stores import SupabaseStore` works; `instantiate_store("supabase", {...})` resolves the class via entry points after `pip install .[supabase]`
 
-- [ ] **Step 1: Export `SupabaseStore` from `src/stores/__init__.py`**
+- [x] **Step 1: Export `SupabaseStore` from `src/stores/__init__.py`**
 
 Open `src/stores/__init__.py`. It currently exports `SessionStore`. Add the `SupabaseStore` export:
 
@@ -443,7 +443,7 @@ from .supabase import SupabaseStore
 __all__ = ["SessionStore", "SupabaseStore"]
 ```
 
-- [ ] **Step 2: Add entry point and optional dep to `pyproject.toml`**
+- [x] **Step 2: Add entry point and optional dep to `pyproject.toml`**
 
 In the `[project.entry-points."tokentracer.stores"]` section, add the `supabase` line:
 
@@ -460,7 +460,7 @@ Add the optional dependency section (add after `[project.scripts]`):
 supabase = ["supabase>=2.0"]
 ```
 
-- [ ] **Step 3: Add class-path resolution test to `tests/test_stores_registry.py`**
+- [x] **Step 3: Add class-path resolution test to `tests/test_stores_registry.py`**
 
 Add this test to `tests/test_stores_registry.py`:
 
@@ -481,7 +481,7 @@ def test_supabase_store_instantiates_via_class_path(tmp_path):
     store.close()
 ```
 
-- [ ] **Step 4: Run the registry tests**
+- [x] **Step 4: Run the registry tests**
 
 ```bash
 python3 -m pytest tests/test_stores_registry.py -v
@@ -489,7 +489,7 @@ python3 -m pytest tests/test_stores_registry.py -v
 
 Expected: all tests pass including the new `test_supabase_store_instantiates_via_class_path`.
 
-- [ ] **Step 5: Run full test suite**
+- [x] **Step 5: Run full test suite**
 
 ```bash
 python3 -m pytest -q
@@ -497,7 +497,7 @@ python3 -m pytest -q
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/stores/__init__.py pyproject.toml tests/test_stores_registry.py
