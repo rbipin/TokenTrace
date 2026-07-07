@@ -10,6 +10,7 @@ from src.config import Config, write_toml_setting
 from src.pipeline import TrackerPipeline
 from src.report import UsageReporter
 from src.stores.sqlite import SqliteStore
+from src.stores.registry import instantiate_store
 
 
 def _parse_bool_arg(val: str) -> bool:
@@ -23,6 +24,16 @@ def _build_pipeline(cfg: Config, track_project_names: bool) -> TrackerPipeline:
         .add(CopilotCliCollector(paths.copilot_home, track_project_names=track_project_names))
         .add(ClaudeCliCollector(paths.claude_projects, track_project_names=track_project_names))
     )
+
+
+def _build_stores(cfg: Config) -> list:
+    stores = [SqliteStore(cfg.db_path)]
+    for sc in cfg.remote_stores:
+        try:
+            stores.append(instantiate_store(sc.name, sc.params, sc.class_path))
+        except Exception as exc:
+            print(f"Warning: could not load store {sc.name!r}: {exc}", file=sys.stderr)
+    return stores
 
 
 def cmd_collect(args) -> int:
@@ -40,14 +51,18 @@ def cmd_collect(args) -> int:
         db_path=Path(args.db) if args.db else cfg.db_path,
         lookback_days=args.lookback,
         track_project_names=cfg.track_project_names,
+        remote_stores=cfg.remote_stores,
     )
 
     since = date.today() - timedelta(days=cfg.lookback_days)
     pipeline = _build_pipeline(cfg, cfg.track_project_names)
-    result = pipeline.since(since).store(SqliteStore(cfg.db_path)).run()
+    stores = _build_stores(cfg)
+    result = pipeline.since(since).stores(*stores).run()
 
     for err in result.errors:
         print(f"Warning: {err}", file=sys.stderr)
+    for err in result.stores_failed:
+        print(f"Warning [store]: {err}", file=sys.stderr)
 
     print(
         f"Collected {result.records_written} session records "
