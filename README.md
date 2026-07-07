@@ -1,6 +1,7 @@
 <img width="1536" height="800" alt="TokenTrace" src="https://github.com/user-attachments/assets/25f04f4b-ecc8-4b9f-95be-52098c9bffed" />
 
 # Token Trace
+[![CI](https://github.com/rbipin/TokenTrace/actions/workflows/ci.yml/badge.svg)](https://github.com/rbipin/TokenTrace/actions/workflows/ci.yml) [![Release](https://github.com/rbipin/TokenTrace/actions/workflows/release.yml/badge.svg)](https://github.com/rbipin/TokenTrace/actions/workflows/release.yml)
 
 A local, periodic tracker for your **AI tool token usage** (GitHub Copilot CLI
 and Claude Code CLI). It records activity at a **session grain** (one row per
@@ -39,12 +40,20 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 | Copilot CLI | `~/.copilot/session-store.db` + `session-state/<id>/events.jsonl` | sessions, turns, per-model token counts (input, output, cache read/write, reasoning) |
 | Claude Code CLI | `~/.claude/projects/**/*.jsonl` | per-session token counts (input, output, cache read/write) |
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture: collect data flow, exact source files and schemas, storage, sync, and extension points.
+
 ## Requirements
 
 - Python 3.11+ (standard library only at runtime; `tomllib` used for config).
 - `pytest` only for running the tests: `pip install -r requirements.txt`.
 
 ## Installation
+
+The **base package** covers local collection and reporting (`collect` /
+`report` / `config` — standard library only). If you want to push records to
+a **remote store** (e.g. Supabase via `tokentracer sync`), install with the
+store's extra — e.g. `tokentracer[supabase]` — otherwise `collect`/`sync`
+will warn that the store's client library is missing.
 
 Install a released version straight from GitHub Releases (replace `0.1.0` with the latest version):
 
@@ -58,6 +67,16 @@ pip install https://github.com/rbipin/TokenTrace/releases/download/v0.1.0/tokent
 # from source at a tag
 uv tool install git+https://github.com/rbipin/TokenTrace@v0.1.0
 pip install git+https://github.com/rbipin/TokenTrace@v0.1.0
+
+# with the Supabase store extra
+uv tool install "tokentracer[supabase] @ git+https://github.com/rbipin/TokenTrace@v0.1.0"
+pip install "tokentracer[supabase] @ git+https://github.com/rbipin/TokenTrace@v0.1.0"
+```
+
+To add an extra to an existing uv tool install, re-run with `--force`:
+
+```bash
+uv tool install --force "tokentracer[supabase] @ git+https://github.com/rbipin/TokenTrace@v0.1.0"
 ```
 
 **From the latest main branch:**
@@ -80,6 +99,7 @@ tokentracer report
 ```bash
 git clone https://github.com/rbipin/TokenTrace
 pipx install .          # or: uv tool install .
+# with the Supabase store: pipx install ".[supabase]"  /  uv tool install ".[supabase]"
 ```
 
 The database is created at `~/.tokentracer/usage.db` on first run. Override with `--db`.
