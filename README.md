@@ -45,19 +45,10 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 
 ---
 
-## Features
+## Outcome
 
 <!-- outcome -->
-| | |
-|---|---|
-| **Exact token counts** | Per session, per model, per tool — actual counts, not estimates |
-| **Cache efficiency** | See how much of your input came from cache and the approximate cost saved |
-| **Trends** | Roll up by day, month, or year — spot which model eats disproportionately more |
-| **Per-project breakdowns** | See which projects or contexts drive the heaviest usage (opt-in) |
-| **Idempotent collection** | Re-running `collect` overwrites session rows — safe to schedule hourly |
-| **Remote sync** | Push records to pluggable remote stores (Supabase built in) via `tokentracer sync` |
-| **Context labels** | Tag each machine's usage as `work` / `personal` and keep them separable |
-| **Heatmap-ready data** | Raw data ready for a usage-intensity heatmap when the visual layer lands |
+This usage analytics tool provides exact token counts per session, model, and tool, along with cache efficiency metrics and estimated cost savings. It offers trend analysis across daily, monthly, and yearly views, optional project-level usage breakdowns, and context labels such as work or personal. Data collection is idempotent for safe scheduled runs, supports remote synchronization to pluggable backends like Supabase, and generates heatmap-ready datasets for future visualization and usage-intensity analysis.
 <!-- /outcome -->
 
 ---
