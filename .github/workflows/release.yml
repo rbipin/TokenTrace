@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify tag matches pyproject.toml version
+        run: |
+          python - <<'PY'
+          import os, sys, tomllib, pathlib
+          version = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
+          tag = os.environ["GITHUB_REF_NAME"]
+          if tag.removeprefix("v") != version:
+              sys.exit(f"Tag {tag} does not match pyproject.toml version {version}. "
+                       f"Bump pyproject.toml or retag, then push again.")
+          print(f"Version check OK: {version}")
+          PY
+      - name: Build wheel and sdist
+        run: |
+          pip install build
+          python -m build
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
