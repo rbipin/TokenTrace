@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from . import SessionStore
 
+from src.config import _expand_env_vars
+
 
 def load_store_registry() -> dict[str, type[SessionStore]]:
     """Discover available stores via entry points.
@@ -66,6 +68,7 @@ def instantiate_store(
     Args:
         name: Store name used for registry lookup (e.g., "sqlite").
         params: Constructor keyword arguments passed to the store class.
+            ${VAR} placeholders in string values are expanded from environment variables.
         class_path: Optional dotted import path to a store class
             (e.g., "src.stores.sqlite.SqliteStore"). If provided, the registry
             is bypassed and this class is loaded directly.
@@ -74,15 +77,19 @@ def instantiate_store(
         An instantiated SessionStore.
 
     Raises:
-        ValueError: If the store name is not found and no class_path is given.
+        ValueError: If the store name is not found and no class_path is given,
+            or if a ${VAR} placeholder references a missing environment variable.
         ModuleNotFoundError: If class_path references a non-existent module.
         AttributeError: If class_path references a non-existent class.
     """
+    # Expand environment variables in params
+    expanded_params = _expand_env_vars(params)
+
     if class_path is not None:
         module_path, _, class_name = class_path.rpartition(".")
         module = importlib.import_module(module_path)
         store_class = getattr(module, class_name)
-        return store_class(**params)
+        return store_class(**expanded_params)
 
     registry = load_store_registry()
     if name not in registry:
@@ -91,4 +98,4 @@ def instantiate_store(
             "'tokentracer.stores' entry point for it, or use "
             "class_path='module.ClassName' in your config."
         )
-    return registry[name](**params)
+    return registry[name](**expanded_params)

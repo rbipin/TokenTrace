@@ -46,3 +46,42 @@ def test_sqlite_section_excluded(tmp_path, monkeypatch):
     monkeypatch.setattr("src.config._TOML_PATH", toml)
     cfg = Config.load()
     assert cfg.remote_stores == ()
+
+
+import os
+import pytest
+from src.config import _expand_env_vars
+
+
+def test_expand_env_vars_substitutes_known_var(monkeypatch):
+    monkeypatch.setenv("MY_URL", "https://example.supabase.co")
+    result = _expand_env_vars({"url": "${MY_URL}", "other": "literal"})
+    assert result == {"url": "https://example.supabase.co", "other": "literal"}
+
+
+def test_expand_env_vars_raises_for_missing_var(monkeypatch):
+    monkeypatch.delenv("MISSING_VAR", raising=False)
+    with pytest.raises(ValueError, match="Missing env var 'MISSING_VAR'"):
+        _expand_env_vars({"key": "${MISSING_VAR}"})
+
+
+def test_expand_env_vars_passthrough_non_string():
+    result = _expand_env_vars({"count": 42, "flag": True})
+    assert result == {"count": 42, "flag": True}
+
+
+def test_expand_env_vars_passthrough_no_placeholder():
+    result = _expand_env_vars({"url": "https://literal.com"})
+    assert result == {"url": "https://literal.com"}
+
+
+def test_instantiate_store_expands_env_vars(monkeypatch, tmp_path):
+    """instantiate_store passes expanded params to the store constructor."""
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "usage.db"))
+    from src.stores.registry import instantiate_store
+    store = instantiate_store(
+        "sqlite",
+        {"db_path": "${SQLITE_PATH}"},
+        class_path="src.stores.sqlite.SqliteStore",
+    )
+    store.close()

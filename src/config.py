@@ -1,6 +1,8 @@
 """Configuration dataclasses and TOML persistence for ai-token-tracer."""
 from __future__ import annotations
 
+import os
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,6 +13,35 @@ except ImportError:
     tomllib = None  # type: ignore[assignment]
 
 _TOML_PATH = Path.home() / ".tokentracer.toml"
+
+
+def _expand_env_vars(params: dict) -> dict:
+    """Expand ${VAR} placeholders in params dict values using environment variables.
+
+    Args:
+        params: Dictionary with string and non-string values.
+
+    Returns:
+        New dictionary with ${VAR} patterns replaced by environment variable values.
+
+    Raises:
+        ValueError: If a ${VAR} placeholder references a missing environment variable.
+    """
+    result = {}
+    for key, value in params.items():
+        if isinstance(value, str):
+            # Find all ${VAR} patterns
+            def replace_var(match):
+                var_name = match.group(1)
+                if var_name not in os.environ:
+                    raise ValueError(f"Missing env var '{var_name}'")
+                return os.environ[var_name]
+
+            result[key] = re.sub(r"\$\{([^}]+)\}", replace_var, value)
+        else:
+            # Pass through non-string values unchanged
+            result[key] = value
+    return result
 
 
 @dataclass(frozen=True)

@@ -55,13 +55,13 @@ class SqliteStore:
 
     name = "sqlite"
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path | str) -> None:
         """Initialize the SQLite store and create schema if needed.
 
         Args:
-            db_path: Path to the SQLite database file.
+            db_path: Path to the SQLite database file (Path or str).
         """
-        self._db_path = db_path
+        self._db_path = Path(db_path) if isinstance(db_path, str) else db_path
         self._migrate()
 
     def _connect(self) -> sqlite3.Connection:
