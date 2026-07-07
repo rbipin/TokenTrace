@@ -14,6 +14,15 @@ _TOML_PATH = Path.home() / ".tokentracer.toml"
 
 
 @dataclass(frozen=True)
+class StoreConfig:
+    """Configuration for a remote store."""
+
+    name: str
+    class_path: str | None  # from "class" key; None means resolve via entry points
+    params: dict  # remaining keys passed as kwargs to the constructor
+
+
+@dataclass(frozen=True)
 class Paths:
     """Filesystem paths for each supported AI tool's data directory."""
 
@@ -31,6 +40,7 @@ class Config:
     )
     lookback_days: int = 3
     track_project_names: bool = False
+    remote_stores: tuple[StoreConfig, ...] = field(default_factory=tuple)
 
     @classmethod
     def load(cls, **overrides) -> "Config":
@@ -43,6 +53,19 @@ class Config:
                 tracking = data.get("tracking", {})
                 if "track_project_names" in tracking:
                     base["track_project_names"] = bool(tracking["track_project_names"])
+                stores_raw = data.get("stores", {})
+                remote: list[StoreConfig] = []
+                for store_name, store_vals in stores_raw.items():
+                    if store_name == "sqlite":
+                        continue  # sqlite is always built-in; ignore explicit section
+                    if isinstance(store_vals, dict):
+                        class_path = store_vals.get("class")
+                        params = {k: v for k, v in store_vals.items() if k != "class"}
+                    else:
+                        class_path = None
+                        params = {}
+                    remote.append(StoreConfig(name=store_name, class_path=class_path, params=params))
+                base["remote_stores"] = tuple(remote)
             except Exception as exc:
                 print(f"Warning: could not parse ~/.tokentracer.toml: {exc}", file=sys.stderr)
         base.update(overrides)
