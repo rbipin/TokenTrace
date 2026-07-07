@@ -83,7 +83,7 @@ src/
 
 **UsageStore schema**: `sessions` table with PRIMARY KEY `(session_id, source, model)`. On first connect, if an old `usage` / `daily_activity` table exists it is dropped with a warning and the user is asked to re-collect.
 
-**Config file**: `~/.tokentracer.toml`. `[tracking]` supports `track_project_names` (bool, default false); CLI flag `--track-projects` / `--no-track-projects` overrides the TOML value per run. `[stores.<name>]` sections declare remote stores (see below); `${VAR}` placeholders in string values are expanded from environment variables at instantiation time (missing vars raise `ValueError`).
+**Config file**: `~/.tokentracer.toml`. `[tracking]` supports `track_project_names` (bool, default false); CLI flag `--track-projects` / `--no-track-projects` overrides the TOML value per run. `[stores.<name>]` sections declare remote stores (see below); `${VAR}` placeholders in string values are expanded at instantiation time — lookup order is `os.environ` first, then `~/.tokentracer.env` (simple `KEY=VALUE` file, `#` comments, optional quotes). Missing vars raise `ValueError`.
 
 ## Stores registry (remote sinks)
 

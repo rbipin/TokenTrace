@@ -85,3 +85,64 @@ def test_instantiate_store_expands_env_vars(monkeypatch, tmp_path):
         class_path="src.stores.sqlite.SqliteStore",
     )
     store.close()
+
+
+# ── .env file support ──────────────────────────────────────────────────────
+
+
+def test_env_file_used_when_var_not_in_environ(monkeypatch, tmp_path):
+    env_file = tmp_path / ".tokentracer.env"
+    env_file.write_text("FILE_ONLY_VAR=from-file\n", encoding="utf-8")
+    monkeypatch.setattr("src.config._ENV_FILE_PATH", env_file)
+    monkeypatch.delenv("FILE_ONLY_VAR", raising=False)
+    result = _expand_env_vars({"key": "${FILE_ONLY_VAR}"})
+    assert result == {"key": "from-file"}
+
+
+def test_environ_wins_over_env_file(monkeypatch, tmp_path):
+    env_file = tmp_path / ".tokentracer.env"
+    env_file.write_text("SHARED_VAR=from-file\n", encoding="utf-8")
+    monkeypatch.setattr("src.config._ENV_FILE_PATH", env_file)
+    monkeypatch.setenv("SHARED_VAR", "from-environ")
+    result = _expand_env_vars({"key": "${SHARED_VAR}"})
+    assert result == {"key": "from-environ"}
+
+
+def test_missing_var_raises_even_with_env_file(monkeypatch, tmp_path):
+    env_file = tmp_path / ".tokentracer.env"
+    env_file.write_text("OTHER=x\n", encoding="utf-8")
+    monkeypatch.setattr("src.config._ENV_FILE_PATH", env_file)
+    monkeypatch.delenv("NOWHERE_VAR", raising=False)
+    with pytest.raises(ValueError, match="Missing env var 'NOWHERE_VAR'"):
+        _expand_env_vars({"key": "${NOWHERE_VAR}"})
+
+
+def test_load_env_file_parsing(tmp_path):
+    from src.config import _load_env_file
+
+    env_file = tmp_path / "test.env"
+    env_file.write_text(
+        "# comment line\n"
+        "\n"
+        "PLAIN=value\n"
+        "QUOTED_DOUBLE=\"double quoted\"\n"
+        "QUOTED_SINGLE='single quoted'\n"
+        "SPACED = padded \n"
+        "WITH_EQUALS=a=b=c\n"
+        "malformed line without equals\n",
+        encoding="utf-8",
+    )
+    values = _load_env_file(env_file)
+    assert values == {
+        "PLAIN": "value",
+        "QUOTED_DOUBLE": "double quoted",
+        "QUOTED_SINGLE": "single quoted",
+        "SPACED": "padded",
+        "WITH_EQUALS": "a=b=c",
+    }
+
+
+def test_load_env_file_missing_returns_empty(tmp_path):
+    from src.config import _load_env_file
+
+    assert _load_env_file(tmp_path / "nope.env") == {}

@@ -155,9 +155,10 @@ subcommand override the file value for that run only.
 Beyond the local SQLite database, TokenTracer can push session records to
 **remote stores** via a pluggable stores registry. Each store implements the
 `SessionStore` protocol (`name`, `upsert(records)`, `close()`), and remote
-stores are configured with `[stores.<name>]` sections in `~/.tokentracer.toml`.
-`${VAR}` placeholders in values are expanded from environment variables, so
-secrets never live in the config file.
+stores are configured with `[stores.<name>]` sections in `~/.tokentracer.toml`. `${VAR}` placeholders in
+values are resolved from environment variables first, then from a
+`~/.tokentracer.env` file (`KEY=VALUE` lines), so secrets never live in the
+config file.
 
 Run `tokentracer sync` to push records that haven't been synced to each store
 yet (sync state is tracked per store in the local database, so re-running is
@@ -203,8 +204,14 @@ create table token_sessions (
 Then:
 
 ```bash
+# Either set environment variables:
 export SUPABASE_URL=https://<project>.supabase.co
 export SUPABASE_KEY=<service-role-key>
+
+# ...or put them in ~/.tokentracer.env (env vars win if both are set):
+#   SUPABASE_URL=https://<project>.supabase.co
+#   SUPABASE_KEY=<service-role-key>
+
 tokentracer sync --dry-run   # preview
 tokentracer sync             # push
 ```

@@ -13,29 +13,62 @@ except ImportError:
     tomllib = None  # type: ignore[assignment]
 
 _TOML_PATH = Path.home() / ".tokentracer.toml"
+_ENV_FILE_PATH = Path.home() / ".tokentracer.env"
+
+
+def _load_env_file(path: Path | None = None) -> dict[str, str]:
+    """Parse a KEY=VALUE env file (comments and blank lines ignored).
+
+    Values may be wrapped in single or double quotes. Malformed lines are skipped.
+    """
+    env_path = path if path is not None else _ENV_FILE_PATH
+    values: dict[str, str] = {}
+    if not env_path.exists():
+        return values
+    try:
+        text = env_path.read_text(encoding="utf-8")
+    except OSError:
+        return values
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        if key:
+            values[key] = value
+    return values
 
 
 def _expand_env_vars(params: dict) -> dict:
-    """Expand ${VAR} placeholders in params dict values using environment variables.
+    """Expand ${VAR} placeholders in params dict values.
+
+    Lookup order: os.environ first, then ~/.tokentracer.env.
 
     Args:
         params: Dictionary with string and non-string values.
 
     Returns:
-        New dictionary with ${VAR} patterns replaced by environment variable values.
+        New dictionary with ${VAR} patterns replaced.
 
     Raises:
-        ValueError: If a ${VAR} placeholder references a missing environment variable.
+        ValueError: If a ${VAR} placeholder is not found in either source.
     """
+    file_env = _load_env_file()
     result = {}
     for key, value in params.items():
         if isinstance(value, str):
             # Find all ${VAR} patterns
             def replace_var(match):
                 var_name = match.group(1)
-                if var_name not in os.environ:
-                    raise ValueError(f"Missing env var '{var_name}'")
-                return os.environ[var_name]
+                if var_name in os.environ:
+                    return os.environ[var_name]
+                if var_name in file_env:
+                    return file_env[var_name]
+                raise ValueError(f"Missing env var '{var_name}'")
 
             result[key] = re.sub(r"\$\{([^}]+)\}", replace_var, value)
         else:
