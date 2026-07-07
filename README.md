@@ -77,7 +77,7 @@ tokentracer report
 
 **From source (clone locally):**
 ```bash
-git clone https://github.com/rbipin/TokenTracer
+git clone https://github.com/rbipin/TokenTrace
 pipx install .          # or: uv tool install .
 ```
 
