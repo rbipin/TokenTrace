@@ -101,6 +101,10 @@ python3 tracker.py report --summary --period all --by-project   # all history, b
 python3 tracker.py report --period month --model claude-sonnet-4-6
 python3 tracker.py report --summary --period all --by-project --json
 
+# Sync unsynced records to configured remote stores (e.g., Supabase)
+python3 tracker.py sync
+python3 tracker.py sync --dry-run   # show pending counts without pushing
+
 # Configuration (persisted to ~/.tokentracer.toml)
 python3 tracker.py config set track_project_names true
 ```
@@ -146,6 +150,105 @@ python3 tracker.py config set track_project_names true
 CLI flags `--track-projects` and `--no-track-projects` on the `collect`
 subcommand override the file value for that run only.
 
+## Remote stores (sync)
+
+Beyond the local SQLite database, TokenTracer can push session records to
+**remote stores** via a pluggable stores registry. Each store implements the
+`SessionStore` protocol (`name`, `upsert(records)`, `close()`), and remote
+stores are configured with `[stores.<name>]` sections in `~/.tokentracer.toml`.
+`${VAR}` placeholders in values are expanded from environment variables, so
+secrets never live in the config file.
+
+Run `tokentracer sync` to push records that haven't been synced to each store
+yet (sync state is tracked per store in the local database, so re-running is
+cheap and idempotent). Use `--dry-run` to see pending counts first.
+
+### Supabase (built in)
+
+A Supabase store ships with TokenTracer. Install the optional dependency and
+configure it:
+
+```bash
+pip install "tokentracer[supabase]"     # pulls in supabase-py >= 2.0
+```
+
+```toml
+# ~/.tokentracer.toml
+[stores.supabase]
+url = "${SUPABASE_URL}"
+key = "${SUPABASE_KEY}"      # service role key
+table = "token_sessions"     # optional, this is the default
+```
+
+Create the table once in the Supabase SQL editor:
+
+```sql
+create table token_sessions (
+  session_id text not null,
+  source text not null,
+  model text not null,
+  date date,
+  start_ts timestamptz,
+  end_ts timestamptz,
+  project text,
+  turns integer default 0,
+  input_tokens bigint default 0,
+  output_tokens bigint default 0,
+  cache_creation_tokens bigint default 0,
+  cache_read_tokens bigint default 0,
+  primary key (session_id, source, model)
+);
+```
+
+Then:
+
+```bash
+export SUPABASE_URL=https://<project>.supabase.co
+export SUPABASE_KEY=<service-role-key>
+tokentracer sync --dry-run   # preview
+tokentracer sync             # push
+```
+
+Rows are upserted with conflict key `(session_id, source, model)` — the same
+primary key as the local database — so syncing is idempotent too.
+
+### Writing your own store
+
+Stores are discovered through the `tokentracer.stores` entry-point group, so
+you can add a new backend (Postgres, S3, an HTTP API, …) without touching
+TokenTracer's code:
+
+1. Implement the protocol in your own package:
+
+   ```python
+   from src.stores import SessionStore  # Protocol: name, upsert, close
+
+   class MyStore:
+       name = "mystore"
+       def __init__(self, url: str): ...
+       def upsert(self, records) -> int: ...
+       def close(self) -> None: ...
+   ```
+
+2. Declare the entry point in your package's `pyproject.toml`:
+
+   ```toml
+   [project.entry-points."tokentracer.stores"]
+   mystore = "my_package.store:MyStore"
+   ```
+
+3. Enable it in `~/.tokentracer.toml` — constructor kwargs come straight from
+   the section (with `${VAR}` env expansion):
+
+   ```toml
+   [stores.mystore]
+   url = "${MYSTORE_URL}"
+   ```
+
+Alternatively, skip packaging and point directly at a class with
+`class = "my_module.MyStore"` in the store's config section.
+
+
 ## Run it periodically
 
 **Windows (Task Scheduler):**
@@ -181,7 +284,11 @@ ai-token/
 │  │  ├─ base.py            # ActivityCollector protocol + to_date / to_local_iso helpers
 │  │  ├─ copilot_cli.py     # Copilot CLI — one record per (session, model)
 │  │  └─ claude_cli.py      # Claude Code CLI — one record per JSONL session
-│  ├─ store.py              # UsageStore (sqlite, session-primary, idempotent upsert)
+│  ├─ stores/               # pluggable store backends (entry-point registry)
+│  │  ├─ __init__.py        # SessionStore protocol
+│  │  ├─ registry.py        # store discovery + instantiation (env var expansion)
+│  │  ├─ sqlite.py          # SqliteStore — local db, idempotent upsert, sync tracking
+│  │  └─ supabase.py        # SupabaseStore — remote Supabase sink
 │  ├─ report.py             # UsageReporter (day/month/year, cache efficiency, --sessions, --by-project)
 │  ├─ pipeline.py           # fluent TrackerPipeline
 │  └─ config.py             # Paths, TOML loading, write_toml_setting
@@ -198,6 +305,9 @@ python3 -m pytest -q
 
 ## Extending
 
-Add a new surface by implementing the `ActivityCollector` protocol
+Add a new **surface** by implementing the `ActivityCollector` protocol
 (`collect(since: date) -> Iterable[SessionRecord]`) and adding it to the
-pipeline in `tracker.py`. No other module needs to change.
+pipeline in `tracker.py`. Add a new **store backend** by implementing the
+`SessionStore` protocol and registering it via the `tokentracer.stores`
+entry-point group (see [Writing your own store](#writing-your-own-store)).
+No other module needs to change.
