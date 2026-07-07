@@ -25,7 +25,7 @@ fi
 
 # -- Unload existing job if present ------------------------------------------
 if launchctl list "$LABEL" &>/dev/null; then
-    echo "Job '$LABEL' already loaded — unloading first..."
+    echo "Job '$LABEL' already loaded — replacing existing job..."
     launchctl unload "$PLIST" 2>/dev/null || true
 fi
 

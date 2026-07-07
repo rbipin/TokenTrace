@@ -1,11 +1,12 @@
 # Registers ai-token-tracer as a Windows Scheduled Task.
 # Runs tracker.py collect --lookback 1 daily at 23:50.
-# Run once as your normal user (no admin required).
+# Run as your normal user (no admin required). Safe to re-run: an existing
+# task with the same name is fully replaced.
 # To remove:  Unregister-ScheduledTask -TaskName "ai-token-tracer" -Confirm:$false
 
 $pythonExe  = "C:\Program Files\python\python312\python.exe"
-$scriptPath = "C:\Repo\me\ai-token\tracker.py"
-$workDir    = "C:\Repo\me\ai-token"
+$scriptPath = "C:\Repo\me\TokenTrace\tracker.py"
+$workDir    = "C:\Repo\me\TokenTrace"
 $taskName   = "ai-token-tracer"
 
 # -- Validate paths before registering -------------------------------------
@@ -35,19 +36,14 @@ $settings = New-ScheduledTaskSettingsSet `
     -RunOnlyIfNetworkAvailable:$false `
     -MultipleInstances IgnoreNew
 
-# -- Register (or update if already exists) --------------------------------
-$existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-if ($existing) {
-    Write-Host "Task '$taskName' already exists — updating..."
-    Set-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings | Out-Null
-} else {
-    Register-ScheduledTask `
-        -TaskName    $taskName `
-        -Action      $action `
-        -Trigger     $trigger `
-        -Settings    $settings `
-        -Description "Collects AI tool token usage (Copilot CLI, Claude Code CLI) daily into $workDir\usage.db" | Out-Null
-}
+# -- Register (replaces any existing task with the same name) ---------------
+Register-ScheduledTask `
+    -TaskName    $taskName `
+    -Action      $action `
+    -Trigger     $trigger `
+    -Settings    $settings `
+    -Description "Collects AI tool token usage (Copilot CLI, Claude Code CLI) daily into $workDir\usage.db" `
+    -Force | Out-Null
 
 Write-Host ""
 Write-Host "✔ Task registered: $taskName"
