@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from src.stores.registry import load_store_registry, instantiate_store
 from src.stores.sqlite import SqliteStore
+from src.stores.supabase import SupabaseStore
 
 
 def test_sqlite_in_registry():
@@ -45,6 +46,22 @@ def test_sqlite_store_has_required_interface():
     registry = load_store_registry()
     store_class = registry["sqlite"]
     assert store_class is SqliteStore
+    assert hasattr(store_class, "name")
+    assert hasattr(store_class, "upsert")
+    assert hasattr(store_class, "close")
+
+
+def test_supabase_in_registry():
+    registry = load_store_registry()
+    assert "supabase" in registry
+    assert registry["supabase"] is SupabaseStore
+
+
+def test_supabase_store_has_required_interface():
+    """The discovered supabase store must implement SessionStore protocol."""
+    registry = load_store_registry()
+    store_class = registry["supabase"]
+    assert store_class is SupabaseStore
     assert hasattr(store_class, "name")
     assert hasattr(store_class, "upsert")
     assert hasattr(store_class, "close")

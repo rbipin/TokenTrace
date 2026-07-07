@@ -21,3 +21,8 @@ class SessionStore(Protocol):
     def close(self) -> None:
         """Flush buffers and release resources."""
         ...
+
+
+from .supabase import SupabaseStore
+
+__all__ = ["SessionStore", "SupabaseStore"]
