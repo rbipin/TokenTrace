@@ -64,8 +64,8 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 
 ## Tech Stack
 
-<!-- techStack -->
-| Layer | Choice |
+<!-- techstack -->
+| Layer | Technology |
 |---|---|
 | Language | Python 3.11+ (standard library only at runtime) |
 | CLI | `argparse`-based entry point (`tracker.py`) — `collect` / `report` / `config` / `sync` subcommands |
@@ -77,7 +77,7 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 | Packaging | `pyproject.toml` console script (`tokentracer`), installable via `pipx` / `uv tool install` |
 | Testing | `pytest` |
 
-<!-- /techStack -->
+<!-- /techstack -->
 
 ---
 
