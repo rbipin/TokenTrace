@@ -13,6 +13,13 @@ keywords = ["claude", "copilot", "tokens", "ai", "usage", "tracker"]
 [project.scripts]
 tokentracer = "tracker:main"
 
+[project.entry-points."tokentracer.stores"]
+sqlite = "src.stores.sqlite:SqliteStore"
+supabase = "src.stores.supabase:SupabaseStore"
+
+[project.optional-dependencies]
+supabase = ["supabase>=2.0"]
+
 [tool.setuptools]
 py-modules = ["tracker"]
 

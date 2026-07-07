@@ -1,15 +1,16 @@
-"""Fluent pipeline wiring collectors to the store."""
+"""Fluent pipeline wiring collectors to stores."""
 
 from __future__ import annotations
 
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import List
 
 from .collectors.base import ActivityCollector
-from .models import SessionRecord, merge_records
-from .store import UsageStore
+from .models import DEFAULT_CONTEXT, SessionRecord, merge_records
+from .stores import SessionStore
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,7 @@ class RunResult:
     records_written: int
     collectors_run: int
     errors: List[str] = field(default_factory=list)
+    stores_failed: List[str] = field(default_factory=list)
 
 
 class TrackerPipeline:
@@ -27,16 +29,22 @@ class TrackerPipeline:
     Usage::
 
         (TrackerPipeline()
-            .add(CopilotCliCollector(...))
+            .add(ClaudeCliCollector(...))
             .since(start)
-            .store(UsageStore(db))
+            .stores(SqliteStore(db), remote_store)
             .run())
     """
 
     def __init__(self) -> None:
         self._collectors: list[ActivityCollector] = []
         self._since: date | None = None
-        self._store: UsageStore | None = None
+        self._stores: list[SessionStore] = []
+        self._context: str = DEFAULT_CONTEXT
+
+    def context(self, label: str) -> "TrackerPipeline":
+        """Set the usage context label (e.g. "work" or "personal") stamped on every record."""
+        self._context = label
+        return self
 
     def add(self, collector: ActivityCollector) -> "TrackerPipeline":
         self._collectors.append(collector)
@@ -46,15 +54,23 @@ class TrackerPipeline:
         self._since = start
         return self
 
-    def store(self, store: UsageStore) -> "TrackerPipeline":
-        self._store = store
+    def stores(self, *stores: SessionStore) -> "TrackerPipeline":
+        self._stores = list(stores)
         return self
+
+    def store(self, store: SessionStore) -> "TrackerPipeline":
+        warnings.warn(
+            "TrackerPipeline.store() is deprecated; use .stores()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.stores(store)
 
     def run(self) -> RunResult:
         if self._since is None:
             raise ValueError("since(start) must be set before run()")
-        if self._store is None:
-            raise ValueError("store(store) must be set before run()")
+        if not self._stores:
+            raise ValueError("stores(...) must be set before run()")
 
         records: list[SessionRecord] = []
         errors: list[str] = []
@@ -66,7 +82,7 @@ class TrackerPipeline:
                 name = getattr(collector, "source", type(collector).__name__)
                 return [], f"{name}: {exc}"
 
-        with ThreadPoolExecutor(max_workers=len(self._collectors)) as pool:
+        with ThreadPoolExecutor(max_workers=max(len(self._collectors), 1)) as pool:
             futures = {pool.submit(_collect, c): c for c in self._collectors}
             for future in as_completed(futures):
                 recs, err = future.result()
@@ -75,5 +91,32 @@ class TrackerPipeline:
                     errors.append(err)
 
         merged = merge_records(records)
-        written = self._store.upsert(merged)
-        return RunResult(records_written=written, collectors_run=len(self._collectors), errors=errors)
+        merged = [replace(rec, context=self._context) for rec in merged]
+
+        # SQLite (first store) must succeed — exceptions propagate
+        written = self._stores[0].upsert(merged)
+        self._stores[0].close()
+
+        # Remotes: parallel, log-and-continue
+        stores_failed: list[str] = []
+
+        def _push(store: SessionStore) -> str | None:
+            try:
+                store.upsert(merged)
+                store.close()
+                return None
+            except Exception as exc:
+                return f"{store.name}: {exc}"
+
+        if len(self._stores) > 1:
+            with ThreadPoolExecutor(max_workers=len(self._stores) - 1) as pool:
+                for err in pool.map(_push, self._stores[1:]):
+                    if err:
+                        stores_failed.append(err)
+
+        return RunResult(
+            records_written=written,
+            collectors_run=len(self._collectors),
+            errors=errors,
+            stores_failed=stores_failed,
+        )

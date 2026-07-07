@@ -20,6 +20,14 @@ class ClaudeCliCollector:
 
     def collect(self, since: date) -> Iterator[SessionRecord]:
         for jsonl_path in self._dir.rglob("*.jsonl"):
+            # Skip files last modified before the window — their sessions
+            # necessarily started before `since` and would be filtered anyway.
+            try:
+                mtime_date = date.fromtimestamp(jsonl_path.stat().st_mtime)
+            except OSError:
+                continue
+            if mtime_date < since:
+                continue
             record = self._parse_session(jsonl_path, since)
             if record is not None:
                 yield record

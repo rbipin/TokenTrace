@@ -9,7 +9,8 @@ from src.collectors import CopilotCliCollector, ClaudeCliCollector
 from src.config import Config, write_toml_setting
 from src.pipeline import TrackerPipeline
 from src.report import UsageReporter
-from src.store import UsageStore
+from src.stores.sqlite import SqliteStore
+from src.stores.registry import instantiate_store
 
 
 def _parse_bool_arg(val: str) -> bool:
@@ -20,9 +21,25 @@ def _build_pipeline(cfg: Config, track_project_names: bool) -> TrackerPipeline:
     paths = cfg.paths
     return (
         TrackerPipeline()
+        .context(cfg.context)
         .add(CopilotCliCollector(paths.copilot_home, track_project_names=track_project_names))
         .add(ClaudeCliCollector(paths.claude_projects, track_project_names=track_project_names))
     )
+
+
+def _load_remote_stores(cfg: Config) -> list:
+    """Instantiate configured remote stores, warning on failures."""
+    stores = []
+    for sc in cfg.remote_stores:
+        try:
+            stores.append(instantiate_store(sc.name, sc.params, sc.class_path))
+        except Exception as exc:
+            print(f"Warning: could not load store {sc.name!r}: {exc}", file=sys.stderr)
+    return stores
+
+
+def _build_stores(cfg: Config) -> list:
+    return [SqliteStore(cfg.db_path), *_load_remote_stores(cfg)]
 
 
 def cmd_collect(args) -> int:
@@ -40,20 +57,88 @@ def cmd_collect(args) -> int:
         db_path=Path(args.db) if args.db else cfg.db_path,
         lookback_days=args.lookback,
         track_project_names=cfg.track_project_names,
+        context=args.context if args.context else cfg.context,
+        remote_stores=cfg.remote_stores,
     )
 
     since = date.today() - timedelta(days=cfg.lookback_days)
     pipeline = _build_pipeline(cfg, cfg.track_project_names)
-    result = pipeline.since(since).store(UsageStore(cfg.db_path)).run()
+    stores = _build_stores(cfg)
+    result = pipeline.since(since).stores(*stores).run()
 
     for err in result.errors:
         print(f"Warning: {err}", file=sys.stderr)
+    for err in result.stores_failed:
+        print(f"Warning [store]: {err}", file=sys.stderr)
 
     print(
         f"Collected {result.records_written} session records "
         f"from {result.collectors_run} collectors "
         f"(since {since.isoformat()})"
     )
+    return 0
+
+
+def _run_sync(
+    sqlite_store,
+    remote_stores: list,
+    dry_run: bool,
+) -> dict:
+    """Core sync logic — separated for testability.
+
+    Returns a dict: {store_name: {"pushed": N, "failed": bool} | {"pending": N}}
+    """
+    result = {}
+    for store in remote_stores:
+        pending = sqlite_store.unsynced_for(store.name)
+        if dry_run:
+            result[store.name] = {"pending": len(pending)}
+            store.close()
+            continue
+        try:
+            if pending:
+                store.upsert(pending)
+                sqlite_store.mark_synced(pending, store.name)
+            result[store.name] = {"pushed": len(pending), "failed": False}
+        except Exception as exc:
+            print(f"Warning [{store.name}]: {exc}", file=sys.stderr)
+            result[store.name] = {"pushed": 0, "failed": True, "error": str(exc)}
+        finally:
+            try:
+                store.close()
+            except Exception:
+                pass
+    return result
+
+
+def cmd_sync(args) -> int:
+    cfg = Config.load()
+    db_path = Path(args.db) if args.db else cfg.db_path
+
+    if not cfg.remote_stores:
+        print("No remote stores configured. Add [stores.X] sections to ~/.tokentracer.toml")
+        return 0
+
+    sqlite_store = SqliteStore(db_path)
+    remote_stores = _load_remote_stores(cfg)
+
+    if not remote_stores:
+        print("No remote stores could be loaded.")
+        return 1
+
+    label = "(dry run) " if args.dry_run else ""
+    print(f"Syncing {len(remote_stores)} store(s)... {label}")
+    result = _run_sync(sqlite_store, remote_stores, dry_run=args.dry_run)
+
+    for store_name, info in result.items():
+        if args.dry_run:
+            print(f"  {store_name:<12} {info['pending']} pending")
+        elif info["failed"]:
+            unsynced = len(sqlite_store.unsynced_for(store_name))
+            print(f"  {store_name:<12} failed ({unsynced} records pending)")
+        else:
+            print(f"  {store_name:<12} {info['pushed']} records pushed")
+
     return 0
 
 
@@ -73,16 +158,24 @@ def cmd_report(args) -> int:
 
 
 def cmd_config_set(args) -> int:
-    supported = {"track_project_names"}
-    if args.key not in supported:
+    bool_keys = {"track_project_names"}
+    str_keys = {"context"}
+    if args.key in bool_keys:
+        value: bool | str = _parse_bool_arg(args.value)
+    elif args.key in str_keys:
+        value = args.value.strip()
+        if not value:
+            print("Config value for 'context' must be a non-empty string", file=sys.stderr)
+            return 1
+    else:
+        supported = sorted(bool_keys | str_keys)
         print(
             f"Unknown config key: {args.key!r}. Supported: {', '.join(supported)}",
             file=sys.stderr,
         )
         return 1
-    bool_val = _parse_bool_arg(args.value)
-    write_toml_setting(args.key, bool_val)
-    print(f"Set {args.key} = {bool_val} in ~/.tokentracer.toml")
+    write_toml_setting(args.key, value)
+    print(f"Set {args.key} = {value} in ~/.tokentracer.toml")
     return 0
 
 
@@ -103,6 +196,8 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     track_group.add_argument("--no-track-projects", dest="track_projects",
                              action="store_const", const=False,
                              help="suppress project names (override toml)")
+    p_collect.add_argument("--context", default=None,
+                           help='usage context label, e.g. "work" or "personal" (override toml)')
 
     # report
     p_report = sub.add_parser("report", help="show usage report")
@@ -123,6 +218,11 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     p_config_set.add_argument("key")
     p_config_set.add_argument("value")
 
+    # sync
+    p_sync = sub.add_parser("sync", help="push unsynced records to remote stores")
+    p_sync.add_argument("--dry-run", action="store_true",
+                        help="show pending counts without pushing")
+
     return parser, p_config
 
 
@@ -134,6 +234,8 @@ def main() -> None:
         sys.exit(cmd_collect(args))
     elif args.cmd == "report":
         sys.exit(cmd_report(args))
+    elif args.cmd == "sync":
+        sys.exit(cmd_sync(args))
     elif args.cmd == "config":
         if args.config_cmd == "set":
             sys.exit(cmd_config_set(args))

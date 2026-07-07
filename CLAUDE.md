@@ -39,6 +39,11 @@ python3 tracker.py report --summary --period month --json
 
 # Configuration
 python3 tracker.py config set track_project_names true
+python3 tracker.py config set context work   # label this machine's usage ("work"/"personal")
+
+# Sync unsynced records to configured remote stores (e.g., Supabase)
+python3 tracker.py sync
+python3 tracker.py sync --dry-run   # show pending counts without pushing
 ```
 
 No build step — standard library only at runtime. Install `pytest` for testing: `pip install -r requirements.txt`.
@@ -52,16 +57,21 @@ No build step — standard library only at runtime. Install `pytest` for testing
 The tracker follows an **Open/Closed pipeline**: adding a new data source only requires implementing the `ActivityCollector` protocol and registering it in `tracker.py`. No other module needs to change.
 
 ```
-tracker.py               CLI entry point (collect / report / config subcommands)
+tracker.py               CLI entry point (collect / report / config / sync subcommands)
 src/
   models.py              SessionRecord frozen dataclass; merge_records deduplicates by (session_id, source, model)
   collectors/
     base.py              ActivityCollector protocol + to_date / to_local_iso helpers
     copilot_cli.py       Reads session-store.db + events.jsonl from ~/.copilot/; yields per-(session, model) records
     claude_cli.py        Reads ~/.claude/projects/**/*.jsonl; yields one record per JSONL (session)
-  store.py               SQLite-backed UsageStore; sessions table, upsert is idempotent (session-grain keyed)
+  stores/
+    __init__.py          SessionStore Protocol (name attr + upsert + close)
+    registry.py          load_store_registry() (entry-point discovery + built-in fallback), instantiate_store()
+    sqlite.py            SqliteStore — local SQLite sink; sessions table, idempotent upsert, sync tracking
+    supabase.py          SupabaseStore — remote sink; upserts into a Supabase token_sessions table
+  store.py               Deprecated alias for SqliteStore (kept for backward compat)
   pipeline.py            Fluent TrackerPipeline; runs collectors in parallel via ThreadPoolExecutor
-  config.py              Paths, TOML loading (Config.load()), write_toml_setting()
+  config.py              Paths, TOML loading (Config.load()), write_toml_setting(), _expand_env_vars()
   report.py              UsageReporter: all/day/month/year periods, cache efficiency header, default detailed session view, --summary, --by-project
 ```
 
@@ -74,9 +84,34 @@ src/
 
 **UsageStore schema**: `sessions` table with PRIMARY KEY `(session_id, source, model)`. On first connect, if an old `usage` / `daily_activity` table exists it is dropped with a warning and the user is asked to re-collect.
 
-**Config file**: `~/.tokentracer.toml` under `[tracking]`. Supported keys: `track_project_names` (bool, default false). CLI flag `--track-projects` / `--no-track-projects` overrides the TOML value per run.
+**Config file**: `~/.tokentracer.toml`. `[tracking]` supports `track_project_names` (bool, default false); CLI flag `--track-projects` / `--no-track-projects` overrides the TOML value per run. `[tracking]` also supports `context` (string, default `"personal"`) — a usage-context label (e.g. `"work"`) stamped on every collected `SessionRecord` via `TrackerPipeline.context()` and stored in the `context` column of the `sessions` table (and pushed to remote stores); CLI flag `--context <label>` on `collect` overrides it per run. `[stores.<name>]` sections declare remote stores (see below); `${VAR}` placeholders in string values are expanded at instantiation time — lookup order is `os.environ` first, then `~/.tokentracer.env` (simple `KEY=VALUE` file, `#` comments, optional quotes). Missing vars raise `ValueError`.
 
-**Copilot CLI data details**: completed sessions write a `session.shutdown` event with `modelMetrics` (full per-model token breakdown). Active sessions fall back to summing `outputTokens` from `assistant.message` events. Each `(session_id, model)` pair becomes one `SessionRecord`.
+## Stores registry (remote sinks)
+
+Stores implement the `SessionStore` Protocol in `src/stores/__init__.py` (`name: str` class attr, `upsert(records) -> int`, `close()`). The local `SqliteStore` is always active; remote stores are optional and driven by `tokentracer sync`:
+
+- **Discovery**: `load_store_registry()` in `src/stores/registry.py` discovers stores via the `tokentracer.stores` entry-point group (declared in `pyproject.toml`). When the package isn't installed (repo checkout), it falls back to the built-ins: `sqlite` and `supabase`.
+- **Instantiation**: `instantiate_store(name, params, class_path=None)` expands `${VAR}` env placeholders in `params`, then constructs the store — via `class_path` (dotted import path, bypasses the registry) if given, else by registry name.
+- **Sync flow**: `tracker.py sync` reads `[stores.*]` from `~/.tokentracer.toml`, and for each remote store pushes rows the SqliteStore reports as unsynced (`unsynced_for(store_name)`), then marks them synced per store. `--dry-run` prints pending counts only. Failed stores are reported without blocking others; stores are always closed in a `finally`.
+
+**Built-in remote store — Supabase** (`src/stores/supabase.py`): upserts rows into a `token_sessions` table with `on_conflict="session_id,source,model"` (mirrors the local primary key). Lazy client creation on first upsert; requires optional dep `supabase>=2.0` (`pip install tokentracer[supabase]`). Configure with:
+
+```toml
+[stores.supabase]
+url = "${SUPABASE_URL}"
+key = "${SUPABASE_KEY}"      # service role key (bypasses RLS)
+table = "token_sessions"     # optional, this is the default
+```
+
+### Adding a new store
+
+1. Create `src/stores/<name>.py` with a class implementing `SessionStore` (`name` class attr + `upsert` + `close`). Keep third-party imports optional (try/except at module level, raise a helpful `ImportError` on first use).
+2. Register it under `[project.entry-points."tokentracer.stores"]` in `pyproject.toml` (and add it to the built-in fallback in `registry.py` if it ships with this repo).
+3. Add any third-party dep as an optional extra in `[project.optional-dependencies]`.
+4. Add tests under `tests/` mocking the client (see `tests/test_supabase_store.py`).
+5. Users enable it with a `[stores.<name>]` section in `~/.tokentracer.toml`; external packages can also provide stores via the same entry-point group — no code changes here needed.
+
+**Copilot CLI data details**: newer CLI versions nest event payloads under a `data` key and use `created_at`/`updated_at` session columns (older: `startedAt`/`endedAt`) — the collector supports both. Completed sessions write a `session.shutdown` event with `modelMetrics` (per-model token breakdown; counts flat in old format, under `usage` + `requests.count` in new). Active sessions fall back to summing `outputTokens` from `assistant.message` events (new format exposes only output tokens there; full input/cache counts arrive at shutdown). Each `(session_id, model)` pair becomes one `SessionRecord`.
 
 **Claude CLI data details**: each conversation is a JSONL file under `~/.claude/projects/<project-id>/<conv-id>.jsonl`. The file stem is the `session_id`. Assistant messages contain `message.usage` with `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`. One `SessionRecord` per JSONL file.
 
