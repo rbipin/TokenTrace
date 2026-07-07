@@ -2,15 +2,15 @@
 
 # Token Trace
 [![CI](https://github.com/rbipin/TokenTrace/actions/workflows/ci.yml/badge.svg)](https://github.com/rbipin/TokenTrace/actions/workflows/ci.yml) [![Release](https://github.com/rbipin/TokenTrace/actions/workflows/release.yml/badge.svg)](https://github.com/rbipin/TokenTrace/actions/workflows/release.yml)
-
+<!-- description -->
 A local, periodic tracker for your **AI tool token usage** (GitHub Copilot CLI
 and Claude Code CLI). It records activity at a **session grain** (one row per
 session per model) so you can roll it up by day, month, or year — and drill
 into individual sessions or projects.
+<!-- /description -->
 
-<!-- purpose -->
 ## Purpose
-
+<!-- purpose -->
 I use AI tools heavily from the CLI and noticed that none of the existing AI harnesses — Copilot, Claude Code, etc. — give a meaningful token-level breakdown or trend over time. They show activity in the moment but offer no persistent view of how much you're consuming or how efficiently you're using it. No dashboard exists today that tracks and reports this across tools in one place.
 
 This project is my answer to that gap: a lightweight local collector that pulls token data from the sources that actually persist it to disk, stores it in SQLite, and lets me query it however I want. The goal is to understand my AI token usage and how it trends over time — and eventually use the data for things like a heatmap of usage intensity across days or models.
@@ -18,9 +18,8 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 
 **Built entirely with Claude Code** — requirements, direction, and corrections were provided by me; implementation was handled by Claude.
 
-<!-- outcome -->
 ## Outcome
-
+<!-- outcome -->
 - Know exactly how many tokens I'm consuming per session, per model, per tool — not a rough estimate, actual counts
 - See cache efficiency: how much of your input came from cache and how much cost that saved
 - Spot trends: am I using more tokens this month than last? Is one model eating disproportionately more?
