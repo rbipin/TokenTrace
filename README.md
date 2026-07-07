@@ -62,6 +62,25 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 
 ---
 
+## Tech Stack
+
+<!-- techStack -->
+| Layer | Choice |
+|---|---|
+| Language | Python 3.11+ (standard library only at runtime) |
+| CLI | `argparse`-based entry point (`tracker.py`) — `collect` / `report` / `config` / `sync` subcommands |
+| Storage | SQLite — local `sessions` table, idempotent `INSERT OR REPLACE` upserts |
+| Config | TOML (`~/.tokentracer.toml`), `${VAR}` env-var expansion via `os.environ` / `~/.tokentracer.env` |
+| Collectors | Read-only parsers for Copilot CLI (`session-store.db` + `events.jsonl`) and Claude Code CLI (per-conversation JSONL) |
+| Remote sync | Pluggable `SessionStore` registry (entry points) — built-in Supabase store |
+| Concurrency | `ThreadPoolExecutor` to run collectors in parallel (`src/pipeline.py`) |
+| Packaging | `pyproject.toml` console script (`tokentracer`), installable via `pipx` / `uv tool install` |
+| Testing | `pytest` |
+
+<!-- /techStack -->
+
+---
+
 ## Data Sources
 
 | Source | Location | Metrics |
