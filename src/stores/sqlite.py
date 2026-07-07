@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     cache_read_tokens      INTEGER DEFAULT 0,
     context_peak_tokens    INTEGER DEFAULT 0,
     reasoning_tokens       INTEGER DEFAULT 0,
+    context                TEXT DEFAULT 'personal',
     PRIMARY KEY (session_id, source, model)
 )
 """
@@ -46,8 +47,8 @@ INSERT OR REPLACE INTO sessions
     (session_id, source, model, date, start_ts, end_ts, project,
      turns, tool_calls, input_tokens, output_tokens,
      cache_creation_tokens, cache_read_tokens,
-     context_peak_tokens, reasoning_tokens)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     context_peak_tokens, reasoning_tokens, context)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -90,6 +91,12 @@ class SqliteStore:
             # Create new schema
             conn.execute(_CREATE_SESSIONS)
             conn.execute(_CREATE_SYNC_LOG)
+            # Add context column to pre-existing sessions tables
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+            if "context" not in cols:
+                conn.execute(
+                    "ALTER TABLE sessions ADD COLUMN context TEXT DEFAULT 'personal'"
+                )
             conn.commit()
 
     def upsert(self, records: list[SessionRecord]) -> int:
@@ -112,7 +119,7 @@ class SqliteStore:
                         r.start_ts, r.end_ts, r.project,
                         r.turns, r.tool_calls, r.input_tokens, r.output_tokens,
                         r.cache_creation_tokens, r.cache_read_tokens,
-                        r.context_peak_tokens, r.reasoning_tokens,
+                        r.context_peak_tokens, r.reasoning_tokens, r.context,
                     )
                     for r in records
                 ],
@@ -131,7 +138,7 @@ class SqliteStore:
         SELECT s.session_id, s.source, s.model, s.date, s.start_ts, s.end_ts,
                s.project, s.turns, s.tool_calls, s.input_tokens, s.output_tokens,
                s.cache_creation_tokens, s.cache_read_tokens,
-               s.context_peak_tokens, s.reasoning_tokens
+               s.context_peak_tokens, s.reasoning_tokens, s.context
         FROM sessions s
         LEFT JOIN sync_log l
             ON s.session_id = l.session_id
@@ -150,6 +157,7 @@ class SqliteStore:
                 output_tokens=row[10], cache_creation_tokens=row[11],
                 cache_read_tokens=row[12], context_peak_tokens=row[13],
                 reasoning_tokens=row[14],
+                context=row[15] if row[15] is not None else "personal",
             )
             for row in rows
         ]

@@ -21,6 +21,7 @@ def _build_pipeline(cfg: Config, track_project_names: bool) -> TrackerPipeline:
     paths = cfg.paths
     return (
         TrackerPipeline()
+        .context(cfg.context)
         .add(CopilotCliCollector(paths.copilot_home, track_project_names=track_project_names))
         .add(ClaudeCliCollector(paths.claude_projects, track_project_names=track_project_names))
     )
@@ -56,6 +57,7 @@ def cmd_collect(args) -> int:
         db_path=Path(args.db) if args.db else cfg.db_path,
         lookback_days=args.lookback,
         track_project_names=cfg.track_project_names,
+        context=args.context if args.context else cfg.context,
         remote_stores=cfg.remote_stores,
     )
 
@@ -156,16 +158,24 @@ def cmd_report(args) -> int:
 
 
 def cmd_config_set(args) -> int:
-    supported = {"track_project_names"}
-    if args.key not in supported:
+    bool_keys = {"track_project_names"}
+    str_keys = {"context"}
+    if args.key in bool_keys:
+        value: bool | str = _parse_bool_arg(args.value)
+    elif args.key in str_keys:
+        value = args.value.strip()
+        if not value:
+            print("Config value for 'context' must be a non-empty string", file=sys.stderr)
+            return 1
+    else:
+        supported = sorted(bool_keys | str_keys)
         print(
             f"Unknown config key: {args.key!r}. Supported: {', '.join(supported)}",
             file=sys.stderr,
         )
         return 1
-    bool_val = _parse_bool_arg(args.value)
-    write_toml_setting(args.key, bool_val)
-    print(f"Set {args.key} = {bool_val} in ~/.tokentracer.toml")
+    write_toml_setting(args.key, value)
+    print(f"Set {args.key} = {value} in ~/.tokentracer.toml")
     return 0
 
 
@@ -186,6 +196,8 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     track_group.add_argument("--no-track-projects", dest="track_projects",
                              action="store_const", const=False,
                              help="suppress project names (override toml)")
+    p_collect.add_argument("--context", default=None,
+                           help='usage context label, e.g. "work" or "personal" (override toml)')
 
     # report
     p_report = sub.add_parser("report", help="show usage report")

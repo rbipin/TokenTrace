@@ -107,6 +107,7 @@ python3 tracker.py sync --dry-run   # show pending counts without pushing
 
 # Configuration (persisted to ~/.tokentracer.toml)
 python3 tracker.py config set track_project_names true
+python3 tracker.py config set context work        # label this machine's usage as "work"
 ```
 
 The database lives at `~/.tokentracer/usage.db` by default (override with
@@ -139,16 +140,23 @@ or use `tracker.py config set <key> <value>` to update individual keys.
 # Off by default — enable if you want per-project breakdowns.
 # Override per-run with: --track-projects / --no-track-projects
 track_project_names = false
+
+# Usage context label stamped on every collected session record and stored
+# in the database (local SQLite and remote stores). Use it to differentiate
+# work from personal usage, e.g. set "work" on your work machine.
+# Default: "personal". Override per-run with: --context <label>
+context = "personal"
 ```
 
 Set a value from the CLI (rewrites the file safely, preserving other keys):
 
 ```bash
 python3 tracker.py config set track_project_names true
+python3 tracker.py config set context work
 ```
 
-CLI flags `--track-projects` and `--no-track-projects` on the `collect`
-subcommand override the file value for that run only.
+CLI flags `--track-projects` / `--no-track-projects` and `--context <label>`
+on the `collect` subcommand override the file values for that run only.
 
 ## Remote stores (sync)
 
@@ -197,6 +205,7 @@ create table token_sessions (
   output_tokens bigint default 0,
   cache_creation_tokens bigint default 0,
   cache_read_tokens bigint default 0,
+  context text default 'personal',
   primary key (session_id, source, model)
 );
 ```

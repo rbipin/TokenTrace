@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import List
 
 from .collectors.base import ActivityCollector
-from .models import SessionRecord, merge_records
+from .models import DEFAULT_CONTEXT, SessionRecord, merge_records
 from .stores import SessionStore
 
 
@@ -39,6 +39,12 @@ class TrackerPipeline:
         self._collectors: list[ActivityCollector] = []
         self._since: date | None = None
         self._stores: list[SessionStore] = []
+        self._context: str = DEFAULT_CONTEXT
+
+    def context(self, label: str) -> "TrackerPipeline":
+        """Set the usage context label (e.g. "work" or "personal") stamped on every record."""
+        self._context = label
+        return self
 
     def add(self, collector: ActivityCollector) -> "TrackerPipeline":
         self._collectors.append(collector)
@@ -85,6 +91,7 @@ class TrackerPipeline:
                     errors.append(err)
 
         merged = merge_records(records)
+        merged = [replace(rec, context=self._context) for rec in merged]
 
         # SQLite (first store) must succeed — exceptions propagate
         written = self._stores[0].upsert(merged)

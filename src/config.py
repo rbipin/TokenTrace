@@ -104,6 +104,7 @@ class Config:
     )
     lookback_days: int = 3
     track_project_names: bool = False
+    context: str = "personal"
     remote_stores: tuple[StoreConfig, ...] = field(default_factory=tuple)
 
     @classmethod
@@ -117,6 +118,8 @@ class Config:
                 tracking = data.get("tracking", {})
                 if "track_project_names" in tracking:
                     base["track_project_names"] = bool(tracking["track_project_names"])
+                if "context" in tracking:
+                    base["context"] = str(tracking["context"])
                 stores_raw = data.get("stores", {})
                 remote: list[StoreConfig] = []
                 for store_name, store_vals in stores_raw.items():
@@ -136,7 +139,14 @@ class Config:
         return cls(**base)
 
 
-def write_toml_setting(key: str, value: bool) -> None:
+def _format_toml_value(value: bool | str) -> str:
+    """Render a Python value as a TOML literal."""
+    if isinstance(value, bool):
+        return str(value).lower()
+    return f'"{value}"'
+
+
+def write_toml_setting(key: str, value: bool | str) -> None:
     """Merge one [tracking] key into ~/.tokentracer.toml."""
     if tomllib is not None:
         _write_toml_311(key, value)
@@ -144,7 +154,7 @@ def write_toml_setting(key: str, value: bool) -> None:
         _write_toml_legacy(key, value)
 
 
-def _write_toml_311(key: str, value: bool) -> None:
+def _write_toml_311(key: str, value: bool | str) -> None:
     """Full parse-and-rewrite path (Python 3.11+)."""
     existing: dict[str, dict] = {}
     if _TOML_PATH.exists():
@@ -161,14 +171,14 @@ def _write_toml_311(key: str, value: bool) -> None:
     for section, vals in existing.items():
         lines.append(f"[{section}]")
         for k, v in vals.items():
-            lines.append(f"{k} = {str(v).lower()}")
+            lines.append(f"{k} = {_format_toml_value(v)}")
         lines.append("")
     _TOML_PATH.write_text("\n".join(lines), encoding="utf-8")
 
 
-def _write_toml_legacy(key: str, value: bool) -> None:
+def _write_toml_legacy(key: str, value: bool | str) -> None:
     """Line-patch fallback (Python < 3.11) — preserves existing sections."""
-    val_str = str(value).lower()
+    val_str = _format_toml_value(value)
     existing_lines = _TOML_PATH.read_text(encoding="utf-8").splitlines() if _TOML_PATH.exists() else []
 
     in_tracking = False

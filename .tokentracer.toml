@@ -4,6 +4,7 @@
 # Off by default — enable if you want per-project breakdowns.
 # Override per-run with: --track-projects / --no-track-projects
 track_project_names = true
+context = "work"
 
 [stores.supabase]
 url = "${SUPABASE_URL}"

@@ -54,6 +54,7 @@ class SupabaseStore:
                 "output_tokens": r.output_tokens,
                 "cache_creation_tokens": r.cache_creation_tokens,
                 "cache_read_tokens": r.cache_read_tokens,
+                "context": r.context,
             }
             for r in records
         ]

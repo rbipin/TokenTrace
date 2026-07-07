@@ -39,6 +39,7 @@ python3 tracker.py report --summary --period month --json
 
 # Configuration
 python3 tracker.py config set track_project_names true
+python3 tracker.py config set context work   # label this machine's usage ("work"/"personal")
 
 # Sync unsynced records to configured remote stores (e.g., Supabase)
 python3 tracker.py sync
@@ -83,7 +84,7 @@ src/
 
 **UsageStore schema**: `sessions` table with PRIMARY KEY `(session_id, source, model)`. On first connect, if an old `usage` / `daily_activity` table exists it is dropped with a warning and the user is asked to re-collect.
 
-**Config file**: `~/.tokentracer.toml`. `[tracking]` supports `track_project_names` (bool, default false); CLI flag `--track-projects` / `--no-track-projects` overrides the TOML value per run. `[stores.<name>]` sections declare remote stores (see below); `${VAR}` placeholders in string values are expanded at instantiation time — lookup order is `os.environ` first, then `~/.tokentracer.env` (simple `KEY=VALUE` file, `#` comments, optional quotes). Missing vars raise `ValueError`.
+**Config file**: `~/.tokentracer.toml`. `[tracking]` supports `track_project_names` (bool, default false); CLI flag `--track-projects` / `--no-track-projects` overrides the TOML value per run. `[tracking]` also supports `context` (string, default `"personal"`) — a usage-context label (e.g. `"work"`) stamped on every collected `SessionRecord` via `TrackerPipeline.context()` and stored in the `context` column of the `sessions` table (and pushed to remote stores); CLI flag `--context <label>` on `collect` overrides it per run. `[stores.<name>]` sections declare remote stores (see below); `${VAR}` placeholders in string values are expanded at instantiation time — lookup order is `os.environ` first, then `~/.tokentracer.env` (simple `KEY=VALUE` file, `#` comments, optional quotes). Missing vars raise `ValueError`.
 
 ## Stores registry (remote sinks)
 

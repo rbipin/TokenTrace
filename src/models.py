@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 UNKNOWN_MODEL = "unknown"
+DEFAULT_CONTEXT = "personal"
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class SessionRecord:
     cache_read_tokens: int = 0
     context_peak_tokens: int = 0
     reasoning_tokens: int = 0
+    context: str = DEFAULT_CONTEXT  # usage context label, e.g. "work" or "personal"
 
     @property
     def key(self) -> tuple[str, str, str]:
