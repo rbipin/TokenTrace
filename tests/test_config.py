@@ -34,6 +34,14 @@ def test_load_override_wins_over_toml(tmp_path, monkeypatch):
     assert cfg.track_project_names == "no"
 
 
+def test_load_rejects_invalid_override(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.config._TOML_PATH", tmp_path / "no_such.toml")
+    with pytest.raises(ValueError, match="whimsical"):
+        Config.load(track_project_names="maybe")
+    with pytest.raises(ValueError, match="whimsical"):
+        Config.load(track_project_names=True)
+
+
 def test_load_rejects_old_boolean_value(tmp_path, monkeypatch, capsys):
     toml = tmp_path / ".tokentracer.toml"
     toml.write_text("[tracking]\ntrack_project_names = true\n")

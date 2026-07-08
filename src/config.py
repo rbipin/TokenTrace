@@ -147,6 +147,13 @@ class Config:
             except Exception as exc:
                 print(f"Warning: could not parse ~/.tokentracer.toml: {exc}", file=sys.stderr)
         base.update(overrides)
+        if "track_project_names" in base:
+            raw_mode = base["track_project_names"]
+            if not (isinstance(raw_mode, str) and raw_mode in PROJECT_NAME_MODES):
+                raise ValueError(
+                    f"invalid track_project_names override {raw_mode!r}; "
+                    f"expected one of {', '.join(PROJECT_NAME_MODES)}"
+                )
         return cls(**base)
 
 

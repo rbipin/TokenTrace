@@ -12,7 +12,7 @@ def _write_toml(tmp_path: Path, content: str) -> Path:
 
 
 def test_no_stores_section(tmp_path, monkeypatch):
-    toml = _write_toml(tmp_path, "[tracking]\ntrack_project_names = false\n")
+    toml = _write_toml(tmp_path, '[tracking]\ntrack_project_names = "no"\n')
     monkeypatch.setattr("src.config._TOML_PATH", toml)
     cfg = Config.load()
     assert cfg.remote_stores == ()

@@ -41,11 +41,11 @@ def test_write_toml_setting_string_value(tmp_path, monkeypatch):
 
 def test_write_toml_setting_preserves_bool_and_string(tmp_path, monkeypatch):
     toml = tmp_path / ".tokentracer.toml"
-    toml.write_text("[tracking]\ntrack_project_names = true\n")
+    toml.write_text('[tracking]\ntrack_project_names = "yes"\n')
     monkeypatch.setattr("src.config._TOML_PATH", toml)
     write_toml_setting("context", "work")
     content = toml.read_text()
-    assert "track_project_names = true" in content
+    assert 'track_project_names = "yes"' in content
     assert 'context = "work"' in content
 
 
