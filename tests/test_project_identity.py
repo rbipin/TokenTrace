@@ -67,3 +67,16 @@ def test_table_schema(tmp_path):
     ProjectIdentityStore(db).resolve_guid("/work/x")
     cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(project_identities)")}
     assert cols == {"cwd_key", "guid", "whimsical_name", "created_at"}
+
+
+def test_concurrent_resolution_is_stable(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    db = tmp_path / "usage.db"
+    store = ProjectIdentityStore(db)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        guids = list(pool.map(lambda _: store.resolve_guid("/work/shared"), range(16)))
+        names = list(pool.map(lambda _: store.resolve_whimsical("/work/shared"), range(16)))
+    assert len(set(guids)) == 1
+    assert len(set(names)) == 1
+    assert None not in guids and None not in names

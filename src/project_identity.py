@@ -48,18 +48,17 @@ class ProjectIdentityStore:
             return None
         key = _normalize(cwd)
         with closing(self._connect()) as conn, conn:
-            row = conn.execute(
-                "SELECT guid FROM project_identities WHERE cwd_key = ?", (key,)
-            ).fetchone()
-            if row is not None:
-                return row[0]
             guid = uuid.uuid4().hex[:_GUID_LENGTH]
             conn.execute(
                 "INSERT INTO project_identities (cwd_key, guid, created_at) "
-                "VALUES (?, ?, datetime('now'))",
+                "VALUES (?, ?, datetime('now')) "
+                "ON CONFLICT(cwd_key) DO NOTHING",
                 (key, guid),
             )
-            return guid
+            row = conn.execute(
+                "SELECT guid FROM project_identities WHERE cwd_key = ?", (key,)
+            ).fetchone()
+            return row[0] if row is not None else None
 
     def resolve_whimsical(self, cwd: str | None) -> str | None:
         """Return the stable whimsical name for *cwd*, creating one on first sight."""
@@ -67,25 +66,36 @@ class ProjectIdentityStore:
         if guid is None:
             return None
         with closing(self._connect()) as conn, conn:
-            row = conn.execute(
-                "SELECT whimsical_name FROM project_identities WHERE guid = ?",
-                (guid,),
-            ).fetchone()
-            if row is not None and row[0]:
-                return row[0]
-            taken = {
-                r[0]
-                for r in conn.execute(
-                    "SELECT whimsical_name FROM project_identities "
-                    "WHERE whimsical_name IS NOT NULL"
-                )
-            }
-            name = generate_name(taken)
-            conn.execute(
-                "UPDATE project_identities SET whimsical_name = ? WHERE guid = ?",
-                (name, guid),
-            )
-            return name
+            for _ in range(2):
+                row = conn.execute(
+                    "SELECT whimsical_name FROM project_identities WHERE guid = ?",
+                    (guid,),
+                ).fetchone()
+                if row is not None and row[0]:
+                    return row[0]
+                taken = {
+                    r[0]
+                    for r in conn.execute(
+                        "SELECT whimsical_name FROM project_identities "
+                        "WHERE whimsical_name IS NOT NULL"
+                    )
+                }
+                name = generate_name(taken)
+                try:
+                    conn.execute(
+                        "UPDATE project_identities SET whimsical_name = ? "
+                        "WHERE guid = ? AND whimsical_name IS NULL",
+                        (name, guid),
+                    )
+                except sqlite3.IntegrityError:
+                    pass
+                row = conn.execute(
+                    "SELECT whimsical_name FROM project_identities WHERE guid = ?",
+                    (guid,),
+                ).fetchone()
+                if row is not None and row[0]:
+                    return row[0]
+            return None
 
     def close(self) -> None:
         """Connections are per-call context managers; nothing to release."""
