@@ -3,4 +3,6 @@
 Self-contained: imports only the Python standard library. Designed to be
 extractable into its own repository by copying this directory.
 """
+from .generator import generate_name
 
+__all__ = ["generate_name"]
