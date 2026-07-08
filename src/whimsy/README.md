@@ -8,11 +8,13 @@ A standalone docker-style whimsical name generator (`admiring_agnesi`,
 ```python
 from whimsy import generate_name  # or `from src.whimsy import generate_name` in-tree
 
-name = generate_name(existing={"admiring_agnesi"})
+name = generate_name()                            # any random name
+name = generate_name(existing={"admiring_agnesi"})  # avoid taken names
 ```
 
-`generate_name(existing, rng=None)` returns an `adjective_surname` combination
-guaranteed not to be in `existing`. After 20 colliding attempts it falls back
+`generate_name(existing=None, rng=None)` returns an `adjective_surname`
+combination guaranteed not to be in `existing` (no exclusions by default).
+After 20 colliding attempts it falls back
 to appending a numeric suffix (like Docker's container namer).
 
 ## License

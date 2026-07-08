@@ -8,17 +8,21 @@ from .wordlists import ADJECTIVES, SURNAMES
 _MAX_ATTEMPTS = 20
 
 
-def generate_name(existing: set[str], rng: random.Random | None = None) -> str:
+def generate_name(
+    existing: set[str] | None = None, rng: random.Random | None = None
+) -> str:
     """Return a unique ``adjective_surname`` name not present in *existing*.
 
     Tries up to ``_MAX_ATTEMPTS`` random combos; if all collide, appends an
     incrementing numeric suffix (Docker's fallback behavior) until unique.
 
     Args:
-        existing: Names already taken; the result is guaranteed not to be in it.
+        existing: Names already taken; the result is guaranteed not to be in
+            it. Defaults to no exclusions (any random name qualifies).
         rng: Optional random source for deterministic tests. Defaults to the
             module-level ``random`` generator.
     """
+    existing = existing if existing is not None else set()
     rng = rng if rng is not None else random.Random()
     for _ in range(_MAX_ATTEMPTS):
         name = f"{rng.choice(ADJECTIVES)}_{rng.choice(SURNAMES)}"

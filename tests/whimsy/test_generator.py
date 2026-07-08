@@ -20,6 +20,14 @@ def test_deterministic_with_seeded_rng():
     assert generate_name(set(), rng=random.Random(7)) == generate_name(set(), rng=random.Random(7))
 
 
+def test_existing_is_optional():
+    name = generate_name(rng=random.Random(11))
+    adjective, _, surname = name.partition("_")
+    assert adjective in ADJECTIVES
+    assert surname in SURNAMES
+    assert generate_name() # module-level rng also works
+
+
 def test_avoids_existing_names():
     rng = random.Random(1)
     existing = {generate_name(set(), rng=random.Random(1))}
