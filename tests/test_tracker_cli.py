@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 import tracker
+from src.config import Config, Paths
 
 
 def test_parser_accepts_project_mode():
@@ -31,6 +32,61 @@ def test_config_set_accepts_valid_mode(tmp_path, monkeypatch):
     assert 'track_project_names = "whimsical"' in (
         tmp_path / ".tokentracer.toml"
     ).read_text()
+
+
+def _cfg(tmp_path, mode: str) -> Config:
+    return Config(
+        paths=Paths(
+            copilot_home=tmp_path / "copilot",
+            claude_projects=tmp_path / "claude",
+        ),
+        db_path=tmp_path / "usage.db",
+        track_project_names=mode,
+    )
+
+
+def test_build_pipeline_returns_identity_store_for_masked_modes(tmp_path):
+    _, store = tracker._build_pipeline(_cfg(tmp_path, "whimsical"))
+    assert store is not None
+    store.close()
+
+
+def test_build_pipeline_returns_no_identity_store_for_yes_mode(tmp_path):
+    _, store = tracker._build_pipeline(_cfg(tmp_path, "yes"))
+    assert store is None
+
+
+def test_cmd_collect_closes_identity_store(tmp_path, monkeypatch):
+    closed = []
+
+    class SpyStore:
+        def close(self):
+            closed.append(True)
+
+    class FakeResult:
+        errors = ()
+        stores_failed = ()
+        records_written = 0
+        collectors_run = 0
+
+    class FakePipeline:
+        def since(self, _):
+            return self
+
+        def stores(self, *_):
+            return self
+
+        def run(self):
+            return FakeResult()
+
+    monkeypatch.setattr(tracker.Config, "load", classmethod(lambda cls, **kw: _cfg(tmp_path, "no")))
+    monkeypatch.setattr(tracker, "_build_pipeline", lambda cfg: (FakePipeline(), SpyStore()))
+    monkeypatch.setattr(tracker, "_build_stores", lambda cfg: [])
+
+    parser, _ = tracker._build_parser()
+    args = parser.parse_args(["collect"])
+    assert tracker.cmd_collect(args) == 0
+    assert closed == [True]
 
 
 def test_config_set_rejects_boolean_value(tmp_path, monkeypatch, capsys):

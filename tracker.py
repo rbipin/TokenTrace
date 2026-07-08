@@ -18,19 +18,24 @@ from src.stores.registry import instantiate_store
 from src.stores.sqlite import SqliteStore
 
 
-def _build_pipeline(cfg: Config) -> TrackerPipeline:
+def _build_pipeline(cfg: Config) -> tuple[TrackerPipeline, ProjectIdentityStore | None]:
+    """Build the collection pipeline plus the identity store it borrows (if any).
+
+    The caller owns the returned store and must close it after the run.
+    """
     paths = cfg.paths
     mode = cfg.track_project_names
     identity_store = (
         ProjectIdentityStore(cfg.db_path) if mode in ("no", "whimsical") else None
     )
     resolver = ProjectNameResolver(mode, identity_store)
-    return (
+    pipeline = (
         TrackerPipeline()
         .context(cfg.context)
         .add(CopilotCliCollector(paths.copilot_home, resolver=resolver))
         .add(ClaudeCliCollector(paths.claude_projects, resolver=resolver))
     )
+    return pipeline, identity_store
 
 
 def _load_remote_stores(cfg: Config) -> list:
@@ -63,9 +68,13 @@ def cmd_collect(args) -> int:
     )
 
     since = date.today() - timedelta(days=cfg.lookback_days)
-    pipeline = _build_pipeline(cfg)
+    pipeline, identity_store = _build_pipeline(cfg)
     stores = _build_stores(cfg)
-    result = pipeline.since(since).stores(*stores).run()
+    try:
+        result = pipeline.since(since).stores(*stores).run()
+    finally:
+        if identity_store is not None:
+            identity_store.close()
 
     for err in result.errors:
         print(f"Warning: {err}", file=sys.stderr)
