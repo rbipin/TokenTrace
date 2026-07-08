@@ -75,25 +75,45 @@ tests/whimsy/
 - `generator.py` exposes `generate_name(existing: set[str]) -> str`: picks a random `adjective_surname` combo; retries (capped, e.g. 20 attempts) on collision against `existing`; if still colliding after retries, appends an incrementing numeric suffix (Docker's own fallback behavior) until unique.
 - `src/project_identity.py` (below) is the **only** consumer of `src/whimsy`, and only through the public `generate_name` function from `src/whimsy/__init__.py` — it must not reach into `wordlists.py` or `generator.py` directly, so the package's internal layout can change freely after extraction without breaking the caller.
 
-### 4. Collector integration
+### 4. Shared naming policy — `ProjectNameResolver` (`src/project_identity.py`)
 
-- `CopilotCliCollector.__init__` / `ClaudeCliCollector.__init__`: `track_project_names: bool` → `project_name_mode: str`, plus an optional `identity_store: ProjectIdentityStore | None` (required only when mode is `"no"`/`"whimsical"`).
-- Resolution per record, keyed on the **raw cwd** already available in both collectors (Copilot: `row["cwd"]`; Claude: `entry.get("cwd")`) — repository name is *not* used as the identity key for `"no"`/`"whimsical"`, only for the `"yes"` display name:
-  - `"yes"`: unchanged — repo name (Copilot) / cwd basename, as today.
-  - `"no"`: `project = identity_store.resolve_guid(cwd)`.
-  - `"whimsical"`: `project = identity_store.resolve_whimsical(cwd)`.
-- Identity-store errors (e.g. locked db file) are caught and logged as a warning per collector (consistent with the existing `sqlite3.OperationalError` handling in `copilot_cli.py`), falling back to `project=None` rather than aborting collection.
+The tri-state naming policy (mode branching, identity-store calls, error fallback) would otherwise be duplicated in both collectors. It lives once in a shared resolver:
 
-### 5. Wiring — `tracker.py`
+```python
+class ProjectNameResolver:
+    def __init__(self, mode: str, identity_store: ProjectIdentityStore | None) -> None: ...
 
-- `_build_pipeline` instantiates one shared `ProjectIdentityStore(cfg.db_path)` and passes it plus `cfg.track_project_names` into both collectors.
+    def resolve(self, display_name: str | None, cwd: str | None) -> str | None:
+        # "yes"       -> display_name (as provided by the collector)
+        # "no"        -> identity_store.resolve_guid(cwd)
+        # "whimsical" -> identity_store.resolve_whimsical(cwd)
+        # missing cwd (for "no"/"whimsical") -> None
+        # identity-store errors -> warn (once) and return None
+```
+
+- Single Responsibility: collectors parse their source files and supply the raw inputs; the resolver owns the naming policy end-to-end.
+- The `identity_store` is required only when mode is `"no"`/`"whimsical"`; for `"yes"` it may be `None`.
+- Identity-store errors (e.g. locked db file) are caught inside the resolver and logged as a warning (consistent with the existing `sqlite3.OperationalError` handling in `copilot_cli.py`), falling back to `None` rather than aborting collection.
+
+### 5. Collector integration
+
+- `CopilotCliCollector.__init__` / `ClaudeCliCollector.__init__`: replace `track_project_names: bool` with a single `resolver: ProjectNameResolver` dependency (constructor injection — collectors know nothing about modes or the identity store).
+- Per record, each collector computes its source-specific inputs and delegates:
+  - Copilot: `resolver.resolve(repo_name or cwd_basename, row["cwd"])` — repo name preferred for the `"yes"` display name, as today.
+  - Claude: `resolver.resolve(cwd_basename, entry.get("cwd"))`.
+- The **raw cwd** is always the identity key for `"no"`/`"whimsical"`; the repository name is only ever a display name for `"yes"`.
+
+### 6. Wiring — `tracker.py`
+
+- `_build_pipeline` instantiates one shared `ProjectIdentityStore(cfg.db_path)`, wraps it in a single `ProjectNameResolver(cfg.track_project_names, identity_store)`, and passes that resolver into both collectors.
 - `cmd_config_set` validates `track_project_names` against `{"yes", "no", "whimsical"}` instead of boolean parsing.
 
 ## Testing
 
 - `tests/test_project_identity.py`: guid stability across case variations of the same cwd; distinct cwds → distinct guids; whimsical name stability tied to guid; concurrent/duplicate resolution is idempotent.
+- `tests/test_project_resolver.py`: mode branching for `"yes"`/`"no"`/`"whimsical"`; missing cwd → `None`; identity-store error → warning + `None`. The policy is tested once here — collector tests only verify that the right `display_name`/`cwd` inputs are passed to a stub resolver.
 - `tests/whimsy/test_generator.py`: generated names match `adjective_surname` format; collision retry produces a unique name; numeric-suffix fallback after exhausting retries. Kept isolated from the rest of `tests/` (imports only `src.whimsy`) so it travels cleanly with the component on extraction.
-- Update existing tests (`test_config.py`, `test_cli_collector.py`, `test_claude_cli_collector.py`, `test_config_stores.py`, `test_context.py`) for the new string-mode API.
+- Update existing tests (`test_config.py`, `test_cli_collector.py`, `test_claude_cli_collector.py`, `test_config_stores.py`, `test_context.py`) for the new resolver-injection API.
 - Regression test confirming `project_identities` rows are never included in `SqliteStore.unsynced_for(...)` output / never pushed to a remote store.
 
 ## Documentation updates
