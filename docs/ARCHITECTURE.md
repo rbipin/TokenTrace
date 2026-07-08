@@ -27,6 +27,8 @@ flowchart LR
         C2[ClaudeCliCollector]
     end
 
+    PR["ProjectNameResolver<br/>src/project_identity.py"]
+    PI[("project_identities<br/>usage.db, local-only")]
     P["TrackerPipeline<br/>src/pipeline.py"]
 
     subgraph Stores["src/stores/"]
@@ -36,8 +38,15 @@ flowchart LR
 
     R["UsageReporter<br/>src/report.py"]
 
-    CP --> C1 --> P
-    CL --> C2 --> P
+    CP --> C1
+    CL --> C2
+    C1 --> PR
+    C2 --> PR
+    PR --> PI
+    PR --> C1
+    PR --> C2
+    C1 --> P
+    C2 --> P
     P --> S1
     P --> S2
     S1 --> R
@@ -49,9 +58,11 @@ flowchart LR
 | `src/models.py` | `SessionRecord` frozen dataclass; `merge_records` dedupe |
 | `src/collectors/` | Read-only source adapters (`ActivityCollector` protocol) |
 | `src/pipeline.py` | Fluent `TrackerPipeline`; parallel collection, fan-out to stores |
+| `src/project_identity.py` | `ProjectNameResolver` tri-state naming policy + `ProjectIdentityStore` |
 | `src/stores/` | `SessionStore` protocol, SQLite + Supabase implementations, registry |
 | `src/report.py` | `UsageReporter`: aggregation and table rendering |
 | `src/config.py` | Paths, `~/.tokentracer.toml` loading, `${VAR}` expansion |
+| `src/whimsy/` | Standalone stdlib-only `generate_name()` package for masked project names |
 
 ## Collect flow
 
@@ -63,15 +74,25 @@ sequenceDiagram
     participant P as TrackerPipeline
     participant CC as CopilotCliCollector
     participant CL as ClaudeCliCollector
+    participant PR as ProjectNameResolver
+    participant PI as ProjectIdentityStore
     participant SQ as SqliteStore
     participant RM as Remote stores
 
     CLI->>P: .context(label).add(collectors).since(today - lookback).stores(...).run()
     par ThreadPoolExecutor
         P->>CC: collect(since)
+        CC->>PR: resolve(display_name, cwd)
+        PR->>PI: resolve_guid/resolve_whimsical (mode=no/whimsical)
+        PI-->>PR: stable guid or whimsical name
+        PR-->>CC: sessions.project value
         CC-->>P: SessionRecords
     and
         P->>CL: collect(since)
+        CL->>PR: resolve(display_name, cwd)
+        PR->>PI: resolve_guid/resolve_whimsical (mode=no/whimsical)
+        PI-->>PR: stable guid or whimsical name
+        PR-->>CL: sessions.project value
         CL-->>P: SessionRecords
     end
     P->>P: merge_records() — dedupe by (session_id, source, model)
@@ -91,6 +112,12 @@ Key invariants:
   warning; other collectors still run. The local SQLite write must succeed;
   remote store failures are logged without blocking.
 - The lookback window defaults to 3 days (`--lookback N` to backfill).
+
+`ProjectNameResolver` applies the shared tri-state naming policy before a
+record reaches the pipeline. Collectors pass source-specific `(display_name,
+cwd)` pairs into `resolve()`: `"yes"` returns the real display name, `"no"`
+stores a stable 12-hex guid derived from `cwd`, and `"whimsical"` stores a
+stable docker-style masked name tied to that same guid.
 
 ### The record model
 
@@ -129,9 +156,10 @@ schema generations are supported (detected via `PRAGMA table_info`):
 | Old CLI | `startedAt` | `endedAt` |
 | New CLI (≥ mid-2026) | `created_at` | `updated_at` |
 
-Sessions starting before `since` are skipped. With `--track-projects`, the
-project name is the last path segment of `repository`, falling back to the
-`cwd` directory name.
+Sessions starting before `since` are skipped. The collector passes
+`(repo_name or cwd_basename, row["cwd"])` into the shared resolver:
+`--project-mode yes` stores the real project name, `no` stores the stable guid
+for that cwd, and `whimsical` stores the stable masked name for that cwd.
 
 **2. `session-state/<session-id>/events.jsonl`** — the per-session event log.
 Newer CLI versions nest each event's payload under a `data` key; the collector
@@ -178,8 +206,9 @@ Each Claude Code conversation is one JSONL file:
 
 - Session `start_ts`/`end_ts` are the min/max `timestamp` across all
   entries; the model comes from the first assistant `message.model`.
-  With `--track-projects`, the project is the directory name of the first
-  `cwd` seen.
+  The collector passes `(cwd_basename, first_cwd_seen)` into the shared
+  resolver, so `sessions.project` holds either the real directory name,
+  the stable guid, or the stable whimsical mask for that cwd.
 
 ### Why no VS Code / Web / Desktop collectors
 
@@ -195,12 +224,21 @@ in a repo checkout; override with `--db`).
 
 - **`sessions` table** — mirrors `SessionRecord`, with
   `PRIMARY KEY (session_id, source, model)` and `INSERT OR REPLACE` upserts.
+- **`project_identities` table** — also lives in `usage.db`, keyed by a
+  normalized (case-insensitive, trimmed) `cwd_key`, with stable `guid` and
+  optional `whimsical_name` columns. It is local-only: `sync_log`,
+  `unsynced_for()`, and remote-store upserts never reference it.
 - **`sync_log` table** — `PRIMARY KEY (session_id, source, model,
   store_name)`; tracks which rows have been pushed to which remote store,
   so `sync` is incremental and idempotent per store.
 - **Migration** — on first connect, a legacy `usage` / `daily_activity`
   table from older versions is dropped with a warning asking the user to
   re-collect (`collect --lookback 90`).
+
+The whimsical-name implementation lives in `src/whimsy/`, a self-contained
+stdlib-only package with one public function, `generate_name(existing=None,
+rng=None)`. `src/project_identity.py` is its only in-tree consumer, which
+keeps the package extractable into its own repository later.
 
 ## Report flow
 
@@ -212,8 +250,9 @@ in a repo checkout; override with `--db`).
   End, Input, Output, CacheRead, CacheCreate, CacheHit%, Turns.
 - **`--summary`** — compact per-session view; combined with a period it
   becomes an aggregated roll-up grouped by period + model.
-- **`--by-project`** — groups by project (requires rows collected with
-  `--track-projects`).
+- **`--by-project`** — groups by project (requires a non-null
+  `sessions.project`; default `--project-mode no` produces stable per-project
+  GUIDs even when real names are masked).
 - **Cache hit %** = cache reads as a share of total input-side tokens; a
   header line reports overall cache efficiency (cache reads cost ~10% of
   regular input tokens).
@@ -224,8 +263,12 @@ in a repo checkout; override with `--db`).
 `Config.load()` (`src/config.py`) reads `~/.tokentracer.toml`
 (`C:\Users\<you>\.tokentracer.toml` on Windows):
 
-- `[tracking] track_project_names` (bool, default `false`) — CLI flags
-  `--track-projects` / `--no-track-projects` override per run.
+- `[tracking] track_project_names` (string, default `"no"`) — one of
+  `"yes"` (real name), `"no"` (stable 12-hex guid per cwd), or
+  `"whimsical"` (stable docker-style masked name). `tracker.py config set`
+  validates the enum; invalid or legacy boolean TOML values warn and fall
+  back to `"no"`. `collect --project-mode <yes|no|whimsical>` overrides it
+  per run.
 - `[tracking] context` (string, default `"personal"`) — usage-context label
   stamped on every collected record via `TrackerPipeline.context()`;
   `--context <label>` overrides per run.

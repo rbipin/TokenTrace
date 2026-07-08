@@ -120,10 +120,12 @@ ai-token/
 ├─ tracker.py                # CLI entry (collect / report / config / sync)
 ├─ src/
 │  ├─ models.py             # SessionRecord (frozen dataclass) + merge
+│  ├─ project_identity.py   # Tri-state project naming + local-only cwd→guid→whimsical identities
 │  ├─ collectors/           # one collector per AI tool surface
 │  │  ├─ base.py            # ActivityCollector protocol + to_date / to_local_iso helpers
 │  │  ├─ copilot_cli.py     # Copilot CLI — one record per (session, model)
 │  │  └─ claude_cli.py      # Claude Code CLI — one record per JSONL session
+│  ├─ whimsy/               # Standalone docker-style masked-name generator (extractable, stdlib-only)
 │  ├─ stores/               # pluggable store backends (entry-point registry)
 │  │  ├─ __init__.py        # SessionStore protocol
 │  │  ├─ registry.py        # store discovery + instantiation (env var expansion)
@@ -212,8 +214,8 @@ The database is created at `~/.tokentracer/usage.db` on first run. Override with
 # Collect (the scheduled job). Re-scans the last N days and upserts.
 python3 tracker.py collect                      # default lookback: 3 days
 python3 tracker.py collect --lookback 90        # backfill more history
-python3 tracker.py collect --track-projects     # store project names this run
-python3 tracker.py collect --no-track-projects  # suppress project names this run
+python tracker.py collect --project-mode whimsical
+# project modes: yes = real name, no = stable 12-hex guid per cwd, whimsical = masked docker-style name
 
 # Default report — today's sessions, one row per session, full token detail
 python3 tracker.py report
@@ -244,7 +246,7 @@ python3 tracker.py sync
 python3 tracker.py sync --dry-run   # show pending counts without pushing
 
 # Configuration (persisted to ~/.tokentracer.toml)
-python3 tracker.py config set track_project_names true
+python tracker.py config set track_project_names whimsical
 python3 tracker.py config set context work        # label this machine's usage as "work"
 ```
 
@@ -282,11 +284,12 @@ or use `tracker.py config set <key> <value>` to update individual keys.
 # ~/.tokentracer.toml
 
 [tracking]
-# Store the project/repo name on each session record.
-# Derived from the repository field (Copilot) or the cwd (Claude Code).
-# Off by default — enable if you want per-project breakdowns.
-# Override per-run with: --track-projects / --no-track-projects
-track_project_names = false
+# Project labeling mode stored in sessions.project.
+# "yes" = real project/repo name.
+# "no" = stable 12-hex guid per cwd (default).
+# "whimsical" = stable docker-style masked name like admiring_agnesi.
+# Override per-run with: --project-mode {yes,no,whimsical}
+track_project_names = "no"
 
 # Usage context label stamped on every collected session record and stored
 # in the database (local SQLite and remote stores). Use it to differentiate
@@ -298,12 +301,22 @@ context = "personal"
 Set a value from the CLI (rewrites the file safely, preserving other keys):
 
 ```bash
-python3 tracker.py config set track_project_names true
+python tracker.py config set track_project_names whimsical
 python3 tracker.py config set context work
 ```
 
-CLI flags `--track-projects` / `--no-track-projects` and `--context <label>`
-on the `collect` subcommand override the file values for that run only.
+`tracker.py config set track_project_names` validates the enum and rejects old
+boolean values such as `true` / `false`. If `~/.tokentracer.toml` still contains
+a legacy boolean or any other invalid value, TokenTrace warns and falls back to
+`"no"`.
+
+Masked modes keep a local-only `project_identities` table inside `usage.db`
+(`cwd_key` case-insensitive → `guid` → `whimsical_name`). Sync never uploads
+that table, so remote stores only ever see the already-resolved value stored in
+`sessions.project`.
+
+CLI flags `--project-mode <yes|no|whimsical>` and `--context <label>` on the
+`collect` subcommand override the file values for that run only.
 
 ---
 
