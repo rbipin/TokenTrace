@@ -56,6 +56,13 @@ CREATE TABLE IF NOT EXISTS project_identities (
 
 - Ports the adjective list (`left`) and scientist/hacker surname list (`right`) from Docker's Apache-2.0-licensed [`namesgenerator.go`](https://github.com/docker-archive/docker-ce/blob/master/components/engine/pkg/namesgenerator/names-generator.go), with a short attribution comment crediting Docker/Moby and noting the Apache 2.0 license.
 - `generate_name(existing: set[str]) -> str`: picks a random `adjective_surname` combo; retries (capped, e.g. 20 attempts) on collision against `existing`; if still colliding after retries, appends an incrementing numeric suffix (Docker's own fallback behavior) until unique.
+- **Supplementary surnames**: extend the ported `right` (surname) list with the following user-supplied notable persons, each as a commented entry in the same style as Docker's list (name — one-line bio — Wikipedia link). Entries that duplicate a name already present in Docker's list are skipped (noted below):
+  - `bose_jc` (Jagadish Chandra Bose), `sarabhai` (Vikram Sarabhai), `ray_pc` (Prafulla Chandra Ray), `mani` (Anna Mani), `ranadive` (Kamal Ranadive), `yash_pal` (Yash Pal)
+  - `hassabis` (Demis Hassabis), `jumper` (John Jumper), `montagnier` (Luc Montagnier), `doudna` (Jennifer Doudna), `charpentier` (Emmanuelle Charpentier), `penrose` (Roger Penrose), `marshall` (Barry Marshall), `warren` (Robin Warren), `yamanaka` (Shinya Yamanaka), `ramakrishnan` (Venkatraman Ramakrishnan), `higgs` (Peter Higgs), `englert` (François Englert), `strickland` (Donna Strickland), `ashkin` (Arthur Ashkin), `thorne` (Kip Thorne), `ghez` (Andrea Ghez), `kariko` (Katalin Karikó), `weissman` (Drew Weissman)
+  - `cantor` (Georg Cantor), `hilbert` (David Hilbert), `russell` (Bertrand Russell), `godel` (Kurt Gödel), `church` (Alonzo Church), `kolmogorov` (Andrey Kolmogorov)
+  - `hinton` (Geoffrey Hinton), `lecun` (Yann LeCun), `bengio` (Yoshua Bengio), `simon` (Herbert Simon), `minsky` (Marvin Minsky), `pearl` (Judea Pearl)
+  - `hoyle` (Fred Hoyle), `woese` (Carl Woese), `brenner` (Sydney Brenner), `edvard_moser` (Edvard Moser)
+  - Skipped as duplicates of existing Docker entries: `ramanujan`, `visvesvaraya`, `bhabha`, `feynman`, `torvalds`, `bardeen`, `burnell`, `moser`.
 
 ### 4. Collector integration
 
