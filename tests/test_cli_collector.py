@@ -8,6 +8,19 @@ from pathlib import Path
 import pytest
 
 from src.collectors.copilot_cli import CopilotCliCollector
+from src.project_identity import ProjectNameResolver
+
+
+class StubResolver:
+    """Records inputs; returns a canned value."""
+
+    def __init__(self, result="RESOLVED"):
+        self.result = result
+        self.calls: list[tuple[str | None, str | None]] = []
+
+    def resolve(self, display_name, cwd):
+        self.calls.append((display_name, cwd))
+        return self.result
 
 
 def _make_home(tmp_path: Path) -> Path:
@@ -115,34 +128,49 @@ def test_since_filter(tmp_path):
     assert records == []
 
 
-def test_project_from_repository(tmp_path):
+def test_project_inputs_prefer_repository(tmp_path):
     home = _make_home(tmp_path)
     _add_session(home, "s1", "/work/x", "owner/myrepo",
                  "2026-06-10T12:00:00.000Z", "2026-06-10T12:30:00.000Z")
     _write_events(home, "s1", [
         _shutdown({"claude-sonnet-4-6": {"turns": 1, "input": 100, "output": 20}}),
     ])
-    r = list(CopilotCliCollector(home, track_project_names=True).collect(date(2026, 6, 10)))[0]
-    assert r.project == "myrepo"
+    stub = StubResolver()
+    r = list(CopilotCliCollector(home, resolver=stub).collect(date(2026, 6, 10)))[0]
+    assert r.project == "RESOLVED"
+    assert stub.calls == [("myrepo", "/work/x")]
 
 
-def test_project_from_cwd_when_no_repo(tmp_path):
+def test_project_inputs_fall_back_to_cwd_basename(tmp_path):
     home = _make_home(tmp_path)
     _add_session(home, "s1", "/work/localproject", "",
                  "2026-06-10T12:00:00.000Z", "2026-06-10T12:30:00.000Z")
     _write_events(home, "s1", [
         _shutdown({"claude-sonnet-4-6": {"turns": 1, "input": 100, "output": 20}}),
     ])
-    r = list(CopilotCliCollector(home, track_project_names=True).collect(date(2026, 6, 10)))[0]
-    assert r.project == "localproject"
+    stub = StubResolver()
+    list(CopilotCliCollector(home, resolver=stub).collect(date(2026, 6, 10)))
+    assert stub.calls == [("localproject", "/work/localproject")]
 
 
-def test_project_none_when_disabled(tmp_path):
+def test_project_none_without_resolver(tmp_path):
     home = _make_home(tmp_path)
     _add_session(home, "s1", "/work/secret", "owner/secret",
                  "2026-06-10T12:00:00.000Z", "2026-06-10T12:30:00.000Z")
     _write_events(home, "s1", [
         _shutdown({"claude-sonnet-4-6": {"turns": 1, "input": 100, "output": 20}}),
     ])
-    r = list(CopilotCliCollector(home, track_project_names=False).collect(date(2026, 6, 10)))[0]
+    r = list(CopilotCliCollector(home).collect(date(2026, 6, 10)))[0]
     assert r.project is None
+
+
+def test_end_to_end_with_real_resolver_yes_mode(tmp_path):
+    home = _make_home(tmp_path)
+    _add_session(home, "s1", "/work/x", "owner/myrepo",
+                 "2026-06-10T12:00:00.000Z", "2026-06-10T12:30:00.000Z")
+    _write_events(home, "s1", [
+        _shutdown({"claude-sonnet-4-6": {"turns": 1, "input": 100, "output": 20}}),
+    ])
+    resolver = ProjectNameResolver("yes")
+    r = list(CopilotCliCollector(home, resolver=resolver).collect(date(2026, 6, 10)))[0]
+    assert r.project == "myrepo"

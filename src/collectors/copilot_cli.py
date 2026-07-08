@@ -19,9 +19,14 @@ class CopilotCliCollector:
 
     source = "copilot_cli"
 
-    def __init__(self, copilot_home: Path, track_project_names: bool = False) -> None:
+    def __init__(self, copilot_home: Path, resolver=None) -> None:
+        """Args:
+            copilot_home: Root of the ~/.copilot data directory.
+            resolver: Optional ProjectNameResolver; when None, records carry
+                no project identity.
+        """
         self._home = copilot_home
-        self._track_projects = track_project_names
+        self._resolver = resolver
 
     def collect(self, since: date) -> Iterator[SessionRecord]:
         db_path = self._home / "session-store.db"
@@ -51,13 +56,11 @@ class CopilotCliCollector:
                 continue
 
             project: str | None = None
-            if self._track_projects:
+            if self._resolver is not None:
                 repo: str = row["repository"] or ""
                 cwd: str = row["cwd"] or ""
-                if repo:
-                    project = repo.split("/")[-1]
-                elif cwd:
-                    project = Path(cwd).name
+                display_name = repo.split("/")[-1] if repo else (Path(cwd).name or None)
+                project = self._resolver.resolve(display_name, cwd or None)
 
             date_str = session_date.isoformat()
             start_iso = to_local_iso(start_ts)

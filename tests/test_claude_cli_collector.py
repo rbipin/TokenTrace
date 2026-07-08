@@ -6,6 +6,17 @@ from pathlib import Path
 
 from src.collectors.claude_cli import ClaudeCliCollector
 from src.models import UNKNOWN_MODEL
+from src.project_identity import ProjectNameResolver
+
+
+class StubResolver:
+    def __init__(self, result="RESOLVED"):
+        self.result = result
+        self.calls: list[tuple[str | None, str | None]] = []
+
+    def resolve(self, display_name, cwd):
+        self.calls.append((display_name, cwd))
+        return self.result
 
 
 def _write_session(path: Path, session_id: str, entries: list[dict]) -> None:
@@ -85,20 +96,31 @@ def test_since_filter_excludes_old_session(tmp_path):
     assert records == []
 
 
-def test_project_captured_when_enabled(tmp_path):
+def test_project_inputs_from_cwd(tmp_path):
     _write_session(tmp_path, "sess-proj", [
         _asst("2026-07-03T10:00:00.000Z", "claude-sonnet-4-6", 10, 5, cwd="/home/user/my-app"),
     ])
-    r = list(ClaudeCliCollector(tmp_path, track_project_names=True).collect(date(2026, 7, 3)))[0]
-    assert r.project == "my-app"
+    stub = StubResolver()
+    r = list(ClaudeCliCollector(tmp_path, resolver=stub).collect(date(2026, 7, 3)))[0]
+    assert r.project == "RESOLVED"
+    assert stub.calls[0] == ("my-app", "/home/user/my-app")
 
 
-def test_project_none_when_disabled(tmp_path):
+def test_project_none_without_resolver(tmp_path):
     _write_session(tmp_path, "sess-noproj", [
         _asst("2026-07-03T10:00:00.000Z", "claude-sonnet-4-6", 10, 5, cwd="/home/user/work-repo"),
     ])
-    r = list(ClaudeCliCollector(tmp_path, track_project_names=False).collect(date(2026, 7, 3)))[0]
+    r = list(ClaudeCliCollector(tmp_path).collect(date(2026, 7, 3)))[0]
     assert r.project is None
+
+
+def test_end_to_end_with_real_resolver_yes_mode(tmp_path):
+    _write_session(tmp_path, "sess-proj", [
+        _asst("2026-07-03T10:00:00.000Z", "claude-sonnet-4-6", 10, 5, cwd="/home/user/my-app"),
+    ])
+    resolver = ProjectNameResolver("yes")
+    r = list(ClaudeCliCollector(tmp_path, resolver=resolver).collect(date(2026, 7, 3)))[0]
+    assert r.project == "my-app"
 
 
 def test_empty_session_yields_record_with_zero_tokens(tmp_path):
