@@ -10,6 +10,7 @@ import sqlite3
 import uuid
 from contextlib import closing
 from pathlib import Path
+import sys
 
 from .whimsy import generate_name
 
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS project_identities (
 """
 
 _GUID_LENGTH = 12
+PROJECT_NAME_MODES = ("yes", "no", "whimsical")
 
 
 def _normalize(cwd: str) -> str:
@@ -99,3 +101,43 @@ class ProjectIdentityStore:
 
     def close(self) -> None:
         """Connections are per-call context managers; nothing to release."""
+
+
+class ProjectNameResolver:
+    """Owns the tri-state project naming policy shared by all collectors.
+
+    Collectors supply source-specific raw inputs (display name, cwd); the
+    resolver decides what — if anything — goes into ``SessionRecord.project``.
+    """
+
+    def __init__(
+        self, mode: str, identity_store: ProjectIdentityStore | None = None
+    ) -> None:
+        if mode not in PROJECT_NAME_MODES:
+            raise ValueError(
+                f"invalid project name mode {mode!r}; "
+                f"expected one of {', '.join(PROJECT_NAME_MODES)}"
+            )
+        if mode in ("no", "whimsical") and identity_store is None:
+            raise ValueError(f"mode {mode!r} requires an identity_store")
+        self._mode = mode
+        self._identity_store = identity_store
+        self._warned = False
+
+    def resolve(self, display_name: str | None, cwd: str | None) -> str | None:
+        """Resolve the project value for one session record."""
+        if self._mode == "yes":
+            return display_name
+        try:
+            if self._mode == "no":
+                return self._identity_store.resolve_guid(cwd)
+            return self._identity_store.resolve_whimsical(cwd)
+        except Exception as exc:
+            if not self._warned:
+                print(
+                    f"Warning [project-identity]: {exc}; "
+                    "project names will be omitted",
+                    file=sys.stderr,
+                )
+                self._warned = True
+            return None
