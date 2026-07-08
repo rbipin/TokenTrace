@@ -48,16 +48,32 @@ CREATE TABLE IF NOT EXISTS project_identities (
 ```
 
 - `resolve_guid(cwd: str) -> str`: normalizes `cwd` (strip + casefold) as the lookup key; if no row exists, generates a new short guid (first 12 hex chars of a `uuid4`) and inserts a row. Same cwd in any case → same guid.
-- `resolve_whimsical(cwd: str) -> str`: calls `resolve_guid` first (ensuring the row exists), then returns the existing `whimsical_name` if set, or generates one via `src/whimsy.py` and persists it. Same guid → same whimsical name, always.
+- `resolve_whimsical(cwd: str) -> str`: calls `resolve_guid` first (ensuring the row exists), then returns the existing `whimsical_name` if set, or generates one via `src/whimsy` (`generate_name`) and persists it. Same guid → same whimsical name, always.
 - This table is **never referenced** by `SqliteStore.unsynced_for` / `mark_synced` / any remote-store upsert path — it has no relationship to `sync_log` and is excluded from sync by construction (it's simply a different table that sync code never queries).
 - If `cwd` is empty/unavailable, both methods return `None` — no identity is fabricated.
 
-### 3. Whimsical name generator — `src/whimsy.py`
+### 3. Whimsical name generator — standalone component at `src/whimsy/`
 
-- Ports the adjective list (`left`) and scientist/hacker surname list (`right`) from Docker's Apache-2.0-licensed [`namesgenerator.go`](https://github.com/docker-archive/docker-ce/blob/master/components/engine/pkg/namesgenerator/names-generator.go), with a short attribution comment crediting Docker/Moby and noting the Apache 2.0 license.
-- `generate_name(existing: set[str]) -> str`: picks a random `adjective_surname` combo; retries (capped, e.g. 20 attempts) on collision against `existing`; if still colliding after retries, appends an incrementing numeric suffix (Docker's own fallback behavior) until unique.
-- **Supplementary surnames**: extend the ported `right` (surname) list with the notable persons listed in [`docs/superpowers/specs/new-names.txt`](./new-names.txt), which is the source of truth for these additions — each entry keeps its original one-line bio + Wikipedia link comment, ported verbatim into `whimsy.py` in the same annotated-comment style as Docker's list (do not flatten the annotations away when implementing).
+This component is deliberately built as a **self-contained, dependency-free package** so it can be lifted into its own repo/project later with a simple directory copy — no other module in this codebase should import from it in a way that would need to change on extraction, and it must never import anything from `src/` itself (no `..models`, `..config`, etc.), only the Python standard library (`random`).
+
+Layout:
+
+```
+src/whimsy/
+    __init__.py       # public API: generate_name(existing: set[str]) -> str
+    wordlists.py       # `ADJECTIVES` and `SURNAMES` tuples (data only)
+    generator.py       # generation + collision-retry logic
+    README.md          # standalone usage docs + Apache 2.0 attribution notice
+    LICENSE-NOTICE.md  # attribution text for the ported Docker word lists
+tests/whimsy/
+    test_generator.py  # imports only from src.whimsy — no fixtures shared with the rest of the test suite
+```
+
+- `wordlists.py` ports the adjective list (`left`) and scientist/hacker surname list (`right`) from Docker's Apache-2.0-licensed [`namesgenerator.go`](https://github.com/docker-archive/docker-ce/blob/master/components/engine/pkg/namesgenerator/names-generator.go), each entry keeping its original one-line bio + Wikipedia link comment. `LICENSE-NOTICE.md` records the Apache 2.0 attribution required for the ported content.
+- **Supplementary surnames**: extend `SURNAMES` with the notable persons listed in [`docs/superpowers/specs/new-names.txt`](./new-names.txt), which is the source of truth for these additions — each entry keeps its original one-line bio + Wikipedia link comment, ported verbatim into `wordlists.py` in the same annotated-comment style as the Docker entries (do not flatten the annotations away when implementing).
   - Entries in that file already present in the ported Docker list are duplicates and must be **skipped**: `ramanujan`, `visvesvaraya`, `bhabha`, `feynman`, `torvalds`, `bardeen`, `burnell`, `moser`.
+- `generator.py` exposes `generate_name(existing: set[str]) -> str`: picks a random `adjective_surname` combo; retries (capped, e.g. 20 attempts) on collision against `existing`; if still colliding after retries, appends an incrementing numeric suffix (Docker's own fallback behavior) until unique.
+- `src/project_identity.py` (below) is the **only** consumer of `src/whimsy`, and only through the public `generate_name` function from `src/whimsy/__init__.py` — it must not reach into `wordlists.py` or `generator.py` directly, so the package's internal layout can change freely after extraction without breaking the caller.
 
 ### 4. Collector integration
 
@@ -76,7 +92,7 @@ CREATE TABLE IF NOT EXISTS project_identities (
 ## Testing
 
 - `tests/test_project_identity.py`: guid stability across case variations of the same cwd; distinct cwds → distinct guids; whimsical name stability tied to guid; concurrent/duplicate resolution is idempotent.
-- `tests/test_whimsy.py`: generated names match `adjective_surname` format; collision retry produces a unique name; numeric-suffix fallback after exhausting retries.
+- `tests/whimsy/test_generator.py`: generated names match `adjective_surname` format; collision retry produces a unique name; numeric-suffix fallback after exhausting retries. Kept isolated from the rest of `tests/` (imports only `src.whimsy`) so it travels cleanly with the component on extraction.
 - Update existing tests (`test_config.py`, `test_cli_collector.py`, `test_claude_cli_collector.py`, `test_config_stores.py`, `test_context.py`) for the new string-mode API.
 - Regression test confirming `project_identities` rows are never included in `SqliteStore.unsynced_for(...)` output / never pushed to a remote store.
 
@@ -85,7 +101,7 @@ CREATE TABLE IF NOT EXISTS project_identities (
 The following docs must be updated alongside the implementation, since they document the current boolean `track_project_names` behavior:
 
 - **`README.md`**: update any `track_project_names` / `--track-projects` / `--no-track-projects` usage examples to the new `"yes"|"no"|"whimsical"` values and the `--project-mode` flag. Add a short explanation of the `"no"` (guid) and `"whimsical"` (masked name) modes and the local-only `project_identities` table.
-- **`CLAUDE.md`**: update the `[tracking]` config description (currently documents `track_project_names` as a plain bool) and the `src/` architecture map to list the new `src/project_identity.py` and `src/whimsy.py` modules, following the existing "Adding a new collector" style of documentation.
+- **`CLAUDE.md`**: update the `[tracking]` config description (currently documents `track_project_names` as a plain bool) and the `src/` architecture map to list the new `src/project_identity.py` module and the standalone `src/whimsy/` package, following the existing "Adding a new collector" style of documentation. Note that `src/whimsy/` is intentionally self-contained (no imports from the rest of `src/`) so it can be extracted into its own repo later.
 - **`docs/ARCHITECTURE.md`**: update the data-flow / module description to include `ProjectIdentityStore` and the whimsical-name generator in the collection pipeline, and note that `project_identities` is local-only and excluded from sync.
 
 ## Migration / compatibility notes
