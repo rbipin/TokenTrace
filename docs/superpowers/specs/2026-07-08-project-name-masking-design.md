@@ -78,6 +78,14 @@ CREATE TABLE IF NOT EXISTS project_identities (
 - Update existing tests (`test_config.py`, `test_cli_collector.py`, `test_claude_cli_collector.py`, `test_config_stores.py`, `test_context.py`) for the new string-mode API.
 - Regression test confirming `project_identities` rows are never included in `SqliteStore.unsynced_for(...)` output / never pushed to a remote store.
 
+## Documentation updates
+
+The following docs must be updated alongside the implementation, since they document the current boolean `track_project_names` behavior:
+
+- **`README.md`**: update any `track_project_names` / `--track-projects` / `--no-track-projects` usage examples to the new `"yes"|"no"|"whimsical"` values and the `--project-mode` flag. Add a short explanation of the `"no"` (guid) and `"whimsical"` (masked name) modes and the local-only `project_identities` table.
+- **`CLAUDE.md`**: update the `[tracking]` config description (currently documents `track_project_names` as a plain bool) and the `src/` architecture map to list the new `src/project_identity.py` and `src/whimsy.py` modules, following the existing "Adding a new collector" style of documentation.
+- **`docs/ARCHITECTURE.md`**: update the data-flow / module description to include `ProjectIdentityStore` and the whimsical-name generator in the collection pipeline, and note that `project_identities` is local-only and excluded from sync.
+
 ## Migration / compatibility notes
 
 - This is a breaking change to `~/.tokentracer.toml` and the `collect` CLI flags. Existing `track_project_names = true|false` entries will need to be rewritten as `"yes"|"no"` — no automatic migration is performed, per explicit user direction that booleans need not be accepted.
