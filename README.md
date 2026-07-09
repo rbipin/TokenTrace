@@ -51,7 +51,7 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 This usage analytics tool provides exact token counts per session, model, and tool, along with cache efficiency metrics and estimated cost savings. Key features include:
 
 - Tracks tool calls per session (Copilot tool events / Claude tool_use blocks)
-- Tracks context peak — the largest single-request token footprint per session
+- Tracks context peak — the largest single-request token footprint per session (main conversation only; models used solely by subagents show 0)
 - Trend analysis across daily, monthly, and yearly views
 - Optional project-level usage breakdowns and context labels (work / personal)
 - Idempotent data collection for safe scheduled runs
@@ -173,7 +173,7 @@ uv tool install https://github.com/rbipin/TokenTrace/releases/download/v0.1.0/to
 pip install https://github.com/rbipin/TokenTrace/releases/download/v0.1.0/tokentracer-0.1.0-py3-none-any.whl
 
 # from source at a tag
-uv tool install git+https://github.com/rbipin/TokenTrace@v0.1.0
+uv tool install git+https://github.com/rbipin/TokenTrace@{version}
 pip install git+https://github.com/rbipin/TokenTrace@v0.1.0
 
 # with the Supabase store extra

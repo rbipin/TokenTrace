@@ -284,7 +284,9 @@ Key properties:
 - Computed per `(session_id, source, model)`, matching the merge key.
 - **Subagent requests are excluded** (Copilot: `agent_id IS NULL` filter;
   Claude: no subagent rows exist in the JSONL files). The peak reflects the
-  main conversation context window only.
+  main conversation context window only. Consequently, a model whose usage
+  in a session came entirely from subagent requests gets
+  `context_peak_tokens = 0` even though its token counts are non-zero.
 - Defaults to `0` when unavailable (older Copilot installs without the
   `assistant_usage_events` table, sessions with no assistant activity). No
   fallback estimation is performed.
