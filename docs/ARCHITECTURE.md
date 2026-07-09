@@ -54,7 +54,8 @@ flowchart LR
 
 | Module | Responsibility |
 | --- | --- |
-| `tracker.py` | CLI entry point: `collect` / `report` / `config` / `sync` / `projects` |
+| `tracker.py` | CLI entry point: builds argparse from the command registry and dispatches |
+| `src/commands/` | `Command` protocol + static `COMMANDS` registry; one module per subcommand (`collect`, `report`, `config`, `projects`, `sync`) |
 | `src/models.py` | `SessionRecord` frozen dataclass; `merge_records` dedupe |
 | `src/collectors/` | Read-only source adapters (`ActivityCollector` protocol) |
 | `src/pipeline.py` | Fluent `TrackerPipeline`; parallel collection, fan-out to stores |
@@ -66,7 +67,7 @@ flowchart LR
 
 ## Collect flow
 
-`tracker.py collect` builds the pipeline in `_build_pipeline()` and runs it:
+`tracker.py collect` builds the pipeline in `_build_pipeline()` (in `src/commands/collect.py`) and runs it:
 
 ```mermaid
 sequenceDiagram
@@ -336,7 +337,7 @@ table = "token_sessions"     # optional, this is the default
    (`source` class attr + `collect(since) -> Iterable[SessionRecord]`).
 2. Export it from `src/collectors/__init__.py`.
 3. Add the relevant path to `Paths` in `src/config.py`.
-4. Instantiate it in `_build_pipeline()` in `tracker.py`.
+4. Instantiate it in `_build_pipeline()` in `src/commands/collect.py`.
 5. Add tests under `tests/` using `tmp_path` fixture files.
 
 ### Adding a store

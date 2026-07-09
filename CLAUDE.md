@@ -60,8 +60,17 @@ No build step — standard library only at runtime. Install `pytest` for testing
 The tracker follows an **Open/Closed pipeline**: adding a new data source only requires implementing the `ActivityCollector` protocol and registering it in `tracker.py`. No other module needs to change.
 
 ```
-tracker.py               CLI entry point (collect / report / config / sync / projects subcommands)
+tracker.py               CLI entry point — builds argparse from the command registry and dispatches
 src/
+  commands/              Command pattern + static registry: one module per subcommand
+    base.py              Command protocol (name, help, configure(parser), run(args) -> int)
+    __init__.py          COMMANDS registry list (add new commands here)
+    collect.py           CollectCommand (+ _build_pipeline / _build_stores helpers)
+    report.py            ReportCommand
+    config.py            ConfigCommand (owns its own set sub-dispatch)
+    projects.py          ProjectsCommand
+    sync.py              SyncCommand (+ _run_sync core logic)
+    common.py            load_remote_stores helper shared by collect/sync
   models.py              SessionRecord frozen dataclass; merge_records deduplicates by (session_id, source, model)
   project_identity.py    ProjectIdentityStore (local-only cwd→guid→whimsical table) + ProjectNameResolver (tri-state naming policy)
   collectors/
@@ -129,7 +138,7 @@ table = "token_sessions"     # optional, this is the default
 1. Create `src/collectors/<name>.py` implementing `ActivityCollector` (`source: str` class attr + `collect(since: date) -> Iterable[SessionRecord]`).
 2. Export it from `src/collectors/__init__.py`.
 3. Add the relevant path to `Paths` in `src/config.py`.
-4. Instantiate it in `_build_pipeline()` in `tracker.py`.
+4. Instantiate it in `_build_pipeline()` in `src/commands/collect.py`.
 5. Add tests under `tests/` using `tmp_path` to create fixture files.
 
 Nothing else needs to change.
