@@ -215,3 +215,39 @@ def test_detailed_json_includes_new_fields(tmp_db):
     assert row["reasoning_tokens"] == 9
     assert row["tool_calls"] == 3
     assert row["context_peak_tokens"] == 500
+
+
+def test_detailed_flag_dumps_all_rows_all_columns(tmp_db):
+    store = UsageStore(tmp_db)
+    old = _rec("s-old", date_str="2020-01-01", tool_calls=1)
+    new = _rec("s-new", date_str="2026-07-09", reasoning_tokens=5)
+    store.upsert([old, new])
+    store.mark_synced([old], "supabase")
+    out = UsageReporter(tmp_db).report(detailed=True)
+    # all rows regardless of date
+    assert "s-old" in out
+    assert "s-new" in out
+    # all columns, including context and sync status
+    for header in ("Session", "Source", "Model", "Date", "Start", "End",
+                   "Project", "Turns", "Tools", "Input", "Output",
+                   "CacheCreate", "CacheRead", "CtxPeak", "Reasoning",
+                   "Context", "Synced"):
+        assert header in out
+    assert "supabase" in out  # s-old synced marker
+
+
+def test_detailed_flag_json_and_model_filter(tmp_db):
+    import json as _json
+    store = UsageStore(tmp_db)
+    store.upsert([
+        _rec("s1", model="model-a", tool_calls=2),
+        _rec("s2", model="model-b"),
+    ])
+    payload = _json.loads(
+        UsageReporter(tmp_db).report(detailed=True, models=["model-a"], as_json=True)
+    )
+    rows = payload["rows"]
+    assert len(rows) == 1
+    assert rows[0]["session_id"] == "s1"
+    assert rows[0]["tool_calls"] == 2
+    assert rows[0]["synced"] == ""
