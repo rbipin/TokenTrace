@@ -15,7 +15,7 @@ python3 -m pytest tests/test_claude_cli_collector.py -q
 python3 tracker.py collect --lookback 3
 
 # Report usage
-# Default: today's sessions, one row each (Project Source Model Start End Input Output CacheRead CacheCreate CacheHit% Turns)
+# Default: today's sessions, one row each (Project Source Model Start End Input Output Reasoning CacheRead CacheCreate CacheHit% CtxPeak Turns Tools)
 python3 tracker.py report
 
 # --summary: compact session view (Session Project Date Start End Turns Tokens CacheHit%)
@@ -36,6 +36,9 @@ python3 tracker.py report --period all --by-project  # all projects ever
 # Filter and JSON output
 python3 tracker.py report --model claude-sonnet-4-6
 python3 tracker.py report --summary --period month --json
+
+# --detailed: all rows in the db, all 17 columns, sync status (overrides --summary/--by-project, ignores --period)
+python3 tracker.py report --detailed
 
 # Configuration
 python3 tracker.py config set track_project_names whimsical   # yes | no | whimsical
@@ -87,7 +90,7 @@ src/
   store.py               Deprecated alias for SqliteStore (kept for backward compat)
   pipeline.py            Fluent TrackerPipeline; runs collectors in parallel via ThreadPoolExecutor
   config.py              Paths, TOML loading (Config.load()), write_toml_setting(), _expand_env_vars()
-  report.py              UsageReporter: all/day/month/year periods, cache efficiency header, default detailed session view, --summary, --by-project
+  report.py              UsageReporter: all/day/month/year periods, cache efficiency header, default detailed session view, --summary, --by-project, --detailed (all rows + all columns + Synced from sync_log)
 ```
 
 **Data flow**: `Collector.collect(since)` → `List[SessionRecord]` → `merge_records` deduplicates → `UsageStore.upsert` writes SQLite → `UsageReporter.report` aggregates for display.
@@ -109,7 +112,7 @@ Stores implement the `SessionStore` Protocol in `src/stores/__init__.py` (`name:
 - **Instantiation**: `instantiate_store(name, params, class_path=None)` expands `${VAR}` env placeholders in `params`, then constructs the store — via `class_path` (dotted import path, bypasses the registry) if given, else by registry name.
 - **Sync flow**: `tracker.py sync` reads `[stores.*]` from `~/.tokentracer.toml`, and for each remote store pushes rows the SqliteStore reports as unsynced (`unsynced_for(store_name)`), then marks them synced per store. `--dry-run` prints pending counts only. Failed stores are reported without blocking others; stores are always closed in a `finally`.
 
-**Built-in remote store — Supabase** (`src/stores/supabase.py`): upserts rows into a `token_sessions` table with `on_conflict="session_id,source,model"` (mirrors the local primary key). Lazy client creation on first upsert; requires optional dep `supabase>=2.0` (`pip install tokentracer[supabase]`). Configure with:
+**Built-in remote store — Supabase** (`src/stores/supabase.py`): upserts rows into a `token_sessions` table with `on_conflict="session_id,source,model"` (mirrors the local primary key). Lazy client creation on first upsert; requires optional dep `supabase>=2.0` (`pip install tokentracer[supabase]`). The upserted payload includes `tool_calls`, `reasoning_tokens`, and `context_peak_tokens`; the remote `token_sessions` table must have those integer columns. Configure with:
 
 ```toml
 [stores.supabase]
@@ -126,9 +129,9 @@ table = "token_sessions"     # optional, this is the default
 4. Add tests under `tests/` mocking the client (see `tests/test_supabase_store.py`).
 5. Users enable it with a `[stores.<name>]` section in `~/.tokentracer.toml`; external packages can also provide stores via the same entry-point group — no code changes here needed.
 
-**Copilot CLI data details**: newer CLI versions nest event payloads under a `data` key and use `created_at`/`updated_at` session columns (older: `startedAt`/`endedAt`) — the collector supports both. Completed sessions write a `session.shutdown` event with `modelMetrics` (per-model token breakdown; counts flat in old format, under `usage` + `requests.count` in new). Active sessions fall back to summing `outputTokens` from `assistant.message` events (new format exposes only output tokens there; full input/cache counts arrive at shutdown). Each `(session_id, model)` pair becomes one `SessionRecord`.
+**Copilot CLI data details**: newer CLI versions nest event payloads under a `data` key and use `created_at`/`updated_at` session columns (older: `startedAt`/`endedAt`) — the collector supports both. Completed sessions write a `session.shutdown` event with `modelMetrics` (per-model token breakdown; counts flat in old format, under `usage` + `requests.count` in new). Active sessions fall back to summing `outputTokens` from `assistant.message` events (new format exposes only output tokens there; full input/cache counts arrive at shutdown). Each `(session_id, model)` pair becomes one `SessionRecord`. `tool.execution_complete` events are counted into `tool_calls`, attributed per model via each event's `model` field when a shutdown event exists, and summed to the single detected model otherwise; the event scan no longer stops at `session.shutdown`. `context_peak_tokens` is computed by a bulk `MAX(input_tokens + output_tokens)` query over the `assistant_usage_events` table in `session-store.db` with `agent_id IS NULL` (`input_tokens` is cache-inclusive); if the table is absent, `context_peak_tokens` defaults to `0` without warning.
 
-**Claude CLI data details**: each conversation is a JSONL file under `~/.claude/projects/<project-id>/<conv-id>.jsonl`. The file stem is the `session_id`. Assistant messages contain `message.usage` with `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`. One `SessionRecord` per JSONL file.
+**Claude CLI data details**: each conversation is a JSONL file under `~/.claude/projects/<project-id>/<conv-id>.jsonl`. The file stem is the `session_id`. Assistant messages contain `message.usage` with `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`. One `SessionRecord` per JSONL file. `tool_use` content blocks in assistant messages are counted into `tool_calls`. `context_peak_tokens` is the maximum per-message `input_tokens + cache_read_input_tokens + cache_creation_input_tokens + output_tokens` across all assistant messages. `reasoning_tokens` stays `0` (no source field in the JSONL).
 
 **No VS Code / Web / Desktop collectors**: those surfaces render token data only live and never persist it to disk. Do not add a collector for a surface unless it starts persisting token data to disk.
 
