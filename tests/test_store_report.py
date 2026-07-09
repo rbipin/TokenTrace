@@ -189,3 +189,29 @@ def test_report_json(tmp_db):
     data = _json.loads(output)
     assert "cache_efficiency" in data
     assert "rows" in data
+
+
+def test_detailed_view_shows_reasoning_tools_ctxpeak(tmp_db):
+    store = UsageStore(tmp_db)
+    store.upsert([_rec("s-cols", date_str=date.today().isoformat(),
+                       reasoning_tokens=42, tool_calls=7,
+                       context_peak_tokens=2100, input_tokens=100)])
+    out = UsageReporter(tmp_db).report(period="day")
+    assert "Reasoning" in out
+    assert "Tools" in out
+    assert "CtxPeak" in out
+    assert "42" in out
+    assert "2100" in out
+
+
+def test_detailed_json_includes_new_fields(tmp_db):
+    import json as _json
+    store = UsageStore(tmp_db)
+    store.upsert([_rec("s-json", date_str=date.today().isoformat(),
+                       reasoning_tokens=9, tool_calls=3,
+                       context_peak_tokens=500)])
+    payload = _json.loads(UsageReporter(tmp_db).report(period="day", as_json=True))
+    row = payload["rows"][0]
+    assert row["reasoning_tokens"] == 9
+    assert row["tool_calls"] == 3
+    assert row["context_peak_tokens"] == 500

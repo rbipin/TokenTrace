@@ -55,9 +55,12 @@ class SessionsDetailedView:
                 end_ts,
                 input_tokens,
                 output_tokens,
+                reasoning_tokens,
                 cache_read_tokens,
                 cache_creation_tokens,
+                context_peak_tokens,
                 turns,
+                tool_calls,
                 input_tokens + cache_creation_tokens + cache_read_tokens AS denom
             FROM sessions
             WHERE {ctx.date_filter}{ctx.model_filter}
@@ -85,17 +88,21 @@ class SessionsDetailedView:
                 (r["end_ts"] or "")[:19],
                 r["input_tokens"],
                 r["output_tokens"],
+                r["reasoning_tokens"],
                 r["cache_read_tokens"],
                 r["cache_creation_tokens"],
                 cache_pct,
+                r["context_peak_tokens"],
                 r["turns"],
+                r["tool_calls"],
             ])
 
         return _format_table(
             ctx.hit_rate,
             ctx.cost_saved,
             headers=["Project", "Source", "Model", "Start", "End",
-                     "Input", "Output", "CacheRead", "CacheCreate", "CacheHit%", "Turns"],
+                     "Input", "Output", "Reasoning", "CacheRead", "CacheCreate",
+                     "CacheHit%", "CtxPeak", "Turns", "Tools"],
             rows=table_rows,
         )
 
