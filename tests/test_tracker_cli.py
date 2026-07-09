@@ -115,14 +115,14 @@ def test_cmd_projects_lists_identities(tmp_path, capsys):
 
     db = tmp_path / "usage.db"
     store = ProjectIdentityStore(db)
-    name = store.resolve_whimsical("C:/Work/MyProj")
+    name = store.resolve_whimsical("Acme/MyProj")
     store.close()
 
     parser = tracker.build_parser()
     args = parser.parse_args(["--db", str(db), "projects"])
     assert args.run(args) == 0
     out = capsys.readouterr().out
-    assert "c:/work/myproj" in out
+    assert "acme/myproj" in out
     assert name in out
 
 
