@@ -74,10 +74,12 @@ class ProjectIdentityStore:
 
     def __init__(self, db_path: Path | str) -> None:
         self._db_path = Path(db_path)
-        with closing(self._connect()) as conn, conn:
-            conn.execute(_CREATE_IDENTITIES)
+        with closing(self._connect()) as conn:
+            with conn:
+                conn.execute(_CREATE_IDENTITIES)
             try:
-                self._migrate_path_keys(conn)
+                with conn:
+                    self._migrate_path_keys(conn)
             except Exception as exc:
                 print(
                     f"Warning [project-identity]: key migration failed: {exc}; "

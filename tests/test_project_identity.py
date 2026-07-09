@@ -167,3 +167,34 @@ def test_trailing_separator_paths_migrate_cleanly(tmp_path):
     _seed_row(db, "/work/trailing/", "dddddddddddd", None, "2026-01-01 00:00:00")
     store = ProjectIdentityStore(db)
     assert [r["cwd_key"] for r in store.list_identities()] == ["trailing"]
+
+
+def test_migration_failure_leaves_rows_untouched(tmp_path, monkeypatch, capsys):
+    """Mid-migration failure rolls back all changes; original rows are preserved."""
+    import src.project_identity as pi_mod
+
+    db = tmp_path / "usage.db"
+    ProjectIdentityStore(db).close()  # create table only
+    key_a = r"c:\work\alpha"
+    key_b = r"c:\work\beta"
+    _seed_row(db, key_a, "aaaaaaaaaaaa", "alpha_name", "2026-01-01 00:00:00")
+    _seed_row(db, key_b, "bbbbbbbbbbbb", "beta_name", "2026-01-01 00:00:00")
+
+    call_count = {"n": 0}
+    real_migrated_key = pi_mod._migrated_key
+
+    def raise_on_second(old_key: str) -> str:
+        call_count["n"] += 1
+        if call_count["n"] >= 2:
+            raise RuntimeError("injected failure")
+        return real_migrated_key(old_key)
+
+    monkeypatch.setattr(pi_mod, "_migrated_key", raise_on_second)
+
+    store = ProjectIdentityStore(db)
+    captured = capsys.readouterr()
+    assert "Warning [project-identity]: key migration failed" in captured.err
+    assert "injected failure" in captured.err
+
+    rows = store.list_identities()
+    assert {r["cwd_key"] for r in rows} == {key_a, key_b}
