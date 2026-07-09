@@ -72,7 +72,7 @@ src/
     sync.py              SyncCommand (+ _run_sync core logic)
     common.py            load_remote_stores helper shared by collect/sync
   models.py              SessionRecord frozen dataclass; merge_records deduplicates by (session_id, source, model)
-  project_identity.py    ProjectIdentityStore (local-only project-key→guid→whimsical table; keys are repo slugs or folder names, legacy path keys migrated on init) + ProjectNameResolver (tri-state naming policy)
+  project_identity.py    ProjectIdentityStore (local-only project-key→guid→whimsical table; keys are repo slugs or folder names, never full paths) + ProjectNameResolver (tri-state naming policy)
   repo_identity.py       resolve_repo_slug(cwd): walks up to .git, parses origin remote from config -> owner/repo (read-only, cached, never raises)
   collectors/
     base.py              ActivityCollector protocol + to_date / to_local_iso helpers
