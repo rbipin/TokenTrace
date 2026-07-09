@@ -90,7 +90,7 @@ src/
   store.py               Deprecated alias for SqliteStore (kept for backward compat)
   pipeline.py            Fluent TrackerPipeline; runs collectors in parallel via ThreadPoolExecutor
   config.py              Paths, TOML loading (Config.load()), write_toml_setting(), _expand_env_vars()
-  report.py              UsageReporter: all/day/month/year periods, cache efficiency header, default detailed session view, --summary, --by-project, --detailed (all rows + all columns + Synced from sync_log)
+  report.py              UsageReporter: all/day/month/year periods, cache efficiency header, default detailed session view includes Reasoning, CtxPeak, and Tools columns, --summary, --by-project, --detailed (all rows + all columns + Synced from sync_log)
 ```
 
 **Data flow**: `Collector.collect(since)` → `List[SessionRecord]` → `merge_records` deduplicates → `UsageStore.upsert` writes SQLite → `UsageReporter.report` aggregates for display.

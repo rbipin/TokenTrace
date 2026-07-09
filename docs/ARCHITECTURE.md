@@ -403,7 +403,7 @@ collected while offline.
 upsert; requires the optional dependency `supabase>=2.0`
 (`pip install tokentracer[supabase]`). The upserted payload includes
 `tool_calls`, `reasoning_tokens`, and `context_peak_tokens`; the remote
-`token_sessions` table must have those integer columns (see `README.md` for
+`token_sessions` table must have those bigint columns (see `README.md` for
 the full `CREATE TABLE` and `ALTER TABLE` migration snippets). Configuration:
 
 ```toml

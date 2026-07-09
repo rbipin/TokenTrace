@@ -48,7 +48,7 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 ## Outcome
 
 <!-- outcome -->
-This usage analytics tool provides exact token counts per session, model, and tool, along with cache efficiency metrics and estimated cost savings. It tracks tool-call counts and context peak token usage per session. It offers trend analysis across daily, monthly, and yearly views, optional project-level usage breakdowns, and context labels such as work or personal. Data collection is idempotent for safe scheduled runs, supports remote synchronization to pluggable backends like Supabase, and generates heatmap-ready datasets for future visualization and usage-intensity analysis.
+This usage analytics tool provides exact token counts per session, model, and tool, along with cache efficiency metrics and estimated cost savings. It tracks tool-call counts per session and context peak token usage per session. It offers trend analysis across daily, monthly, and yearly views, optional project-level usage breakdowns, and context labels such as work or personal. Data collection is idempotent for safe scheduled runs, supports remote synchronization to pluggable backends like Supabase, and generates heatmap-ready datasets for future visualization and usage-intensity analysis.
 <!-- /outcome -->
 
 ---
@@ -384,9 +384,9 @@ create table token_sessions (
 If you have an existing `token_sessions` table, add the new columns:
 
 ```sql
-ALTER TABLE token_sessions ADD COLUMN tool_calls integer DEFAULT 0;
-ALTER TABLE token_sessions ADD COLUMN reasoning_tokens integer DEFAULT 0;
-ALTER TABLE token_sessions ADD COLUMN context_peak_tokens integer DEFAULT 0;
+ALTER TABLE token_sessions ADD COLUMN tool_calls bigint DEFAULT 0;
+ALTER TABLE token_sessions ADD COLUMN reasoning_tokens bigint DEFAULT 0;
+ALTER TABLE token_sessions ADD COLUMN context_peak_tokens bigint DEFAULT 0;
 ```
 
 Then:
