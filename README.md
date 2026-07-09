@@ -116,7 +116,7 @@ Collector.collect(since)          one collector per AI tool surface
 - Upsert is **last-write-wins** — no summation across runs.
 - Collectors are **read-only** with respect to their source files.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture: collect data flow, exact source files and schemas, storage, sync, and extension points.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture: collect data flow, exact source files and schemas, storage, sync, and extension points. [docs/DESIGN-HISTORY.md](docs/DESIGN-HISTORY.md) records the design decisions that shaped the project.
 
 ---
 
