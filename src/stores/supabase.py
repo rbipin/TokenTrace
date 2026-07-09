@@ -50,10 +50,13 @@ class SupabaseStore:
                 "end_ts": r.end_ts,
                 "project": r.project,
                 "turns": r.turns,
+                "tool_calls": r.tool_calls,
                 "input_tokens": r.input_tokens,
                 "output_tokens": r.output_tokens,
                 "cache_creation_tokens": r.cache_creation_tokens,
                 "cache_read_tokens": r.cache_read_tokens,
+                "context_peak_tokens": r.context_peak_tokens,
+                "reasoning_tokens": r.reasoning_tokens,
                 "context": r.context,
             }
             for r in records

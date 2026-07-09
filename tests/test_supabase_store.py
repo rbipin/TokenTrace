@@ -125,3 +125,20 @@ def test_close_clears_client_cache():
 def test_name_attribute():
     store = _make_store()
     assert store.name == "supabase"
+
+
+def test_upsert_includes_tool_and_token_detail_columns():
+    mock_client = MagicMock()
+    with patch("src.stores.supabase._create_client", return_value=mock_client):
+        store = _make_store()
+        rec = SessionRecord(
+            session_id="s1", source="copilot_cli", model="m",
+            date="2026-07-09", turns=3, tool_calls=7,
+            input_tokens=100, output_tokens=50,
+            reasoning_tokens=42, context_peak_tokens=2100,
+        )
+        store.upsert([rec])
+    rows = mock_client.table.return_value.upsert.call_args[0][0]
+    assert rows[0]["tool_calls"] == 7
+    assert rows[0]["reasoning_tokens"] == 42
+    assert rows[0]["context_peak_tokens"] == 2100
