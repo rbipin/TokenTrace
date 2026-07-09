@@ -167,8 +167,8 @@ class ByProjectView:
         if not rows:
             note = (
                 "No project data found. Enable project tracking:\n"
-                "  python3 tracker.py config set track_project_names true\n"
-                "Then re-collect: python3 tracker.py collect --track-projects"
+                "  python3 tracker.py config set track_project_names yes\n"
+                "Then re-collect: python3 tracker.py collect --project-mode yes"
             )
             if ctx.as_json:
                 return json.dumps({"note": note, "rows": []}, indent=2)

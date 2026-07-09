@@ -147,6 +147,9 @@ def test_report_by_project_shows_note_when_no_projects(tmp_db):
     reporter = UsageReporter(tmp_db)
     output = reporter.report(period="day", by_project=True)
     assert "track_project_names" in output
+    assert "--project-mode" in output
+    assert "--track-projects" not in output
+    assert "track_project_names true" not in output
 
 
 def test_report_default_shows_detailed_columns(tmp_db):
