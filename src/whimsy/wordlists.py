@@ -3,7 +3,7 @@
 Adapted from Docker's names-generator.go
 (https://github.com/docker-archive/docker-ce/blob/master/components/engine/pkg/namesgenerator/names-generator.go),
 licensed under the Apache License 2.0. See LICENSE-NOTICE.md.
-Supplementary surnames appended from docs/superpowers/specs/new-names.txt.
+Supplementary surnames appended from docs/new-names.txt.
 """
 
 ADJECTIVES: tuple[str, ...] = (

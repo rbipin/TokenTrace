@@ -189,3 +189,76 @@ def test_report_json(tmp_db):
     data = _json.loads(output)
     assert "cache_efficiency" in data
     assert "rows" in data
+
+
+def test_detailed_view_shows_reasoning_tools_ctxpeak(tmp_db):
+    store = UsageStore(tmp_db)
+    store.upsert([_rec("s-cols", date_str=date.today().isoformat(),
+                       reasoning_tokens=42, tool_calls=7,
+                       context_peak_tokens=2100, input_tokens=100)])
+    out = UsageReporter(tmp_db).report(period="day")
+    assert "Reasoning" in out
+    assert "Tools" in out
+    assert "CtxPeak" in out
+    assert "42" in out
+    assert "2100" in out
+
+
+def test_detailed_json_includes_new_fields(tmp_db):
+    import json as _json
+    store = UsageStore(tmp_db)
+    store.upsert([_rec("s-json", date_str=date.today().isoformat(),
+                       reasoning_tokens=9, tool_calls=3,
+                       context_peak_tokens=500)])
+    payload = _json.loads(UsageReporter(tmp_db).report(period="day", as_json=True))
+    row = payload["rows"][0]
+    assert row["reasoning_tokens"] == 9
+    assert row["tool_calls"] == 3
+    assert row["context_peak_tokens"] == 500
+
+
+def test_detailed_flag_dumps_all_rows_all_columns(tmp_db):
+    store = UsageStore(tmp_db)
+    old = _rec("s-old", date_str="2020-01-01", tool_calls=1)
+    new = _rec("s-new", date_str="2026-07-09", reasoning_tokens=5)
+    store.upsert([old, new])
+    store.mark_synced([old], "supabase")
+    out = UsageReporter(tmp_db).report(detailed=True)
+    # all rows regardless of date
+    assert "s-old" in out
+    assert "s-new" in out
+    # all columns, including context and sync status
+    for header in ("Session", "Source", "Model", "Date", "Start", "End",
+                   "Project", "Turns", "Tools", "Input", "Output",
+                   "CacheCreate", "CacheRead", "CtxPeak", "Reasoning",
+                   "Context", "Synced"):
+        assert header in out
+    assert "supabase" in out  # s-old synced marker
+
+
+def test_detailed_flag_json_and_model_filter(tmp_db):
+    import json as _json
+    store = UsageStore(tmp_db)
+    store.upsert([
+        _rec("s1", model="model-a", tool_calls=2),
+        _rec("s2", model="model-b"),
+    ])
+    payload = _json.loads(
+        UsageReporter(tmp_db).report(detailed=True, models=["model-a"], as_json=True)
+    )
+    rows = payload["rows"]
+    assert len(rows) == 1
+    assert rows[0]["session_id"] == "s1"
+    assert rows[0]["tool_calls"] == 2
+    assert rows[0]["synced"] == ""
+
+
+def test_detailed_takes_precedence_and_ignores_period(tmp_db):
+    store = UsageStore(tmp_db)
+    store.upsert([_rec("s-prec", date_str="2020-01-01", tool_calls=4)])
+    # detailed wins over summary/by_project and ignores the period filter
+    out = UsageReporter(tmp_db).report(
+        period="day", summary=True, by_project=True, detailed=True
+    )
+    assert "s-prec" in out      # 2020 row shown despite period="day"
+    assert "Synced" in out      # full-dump headers, not summary/by-project

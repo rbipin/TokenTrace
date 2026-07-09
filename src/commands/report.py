@@ -22,6 +22,9 @@ class ReportCommand:
         parser.add_argument("--summary", action="store_true",
                             help="aggregate by period+model instead of showing "
                                  "per-session rows")
+        parser.add_argument("--detailed", action="store_true",
+                            help="dump every row in the db with all columns "
+                                 "and sync status (overrides --summary/--by-project, ignores --period)")
         parser.add_argument("--json", action="store_true",
                             help="output as JSON")
 
@@ -35,6 +38,7 @@ class ReportCommand:
             by_project=args.by_project,
             summary=args.summary,
             as_json=args.json,
+            detailed=args.detailed,
         )
         print(output, end="")
         return 0

@@ -183,6 +183,42 @@ reads `event.get("data") or event` to handle both. Two parse paths:
   there — full input/cache counts arrive at shutdown, and the next
   `collect` run overwrites the row with the final numbers.
 
+- **Tool calls** — `tool.execution_complete` events are counted as they
+  are encountered. When a shutdown event is present the counts are
+  attributed per model via each event's `model` field; without a shutdown
+  event the total is attributed to the single detected model. The event
+  scan no longer stops early at `session.shutdown` so tool events that
+  follow the shutdown marker are captured.
+
+- **Context peak** — before event parsing begins, the collector runs one
+  bulk query against `assistant_usage_events` in `session-store.db`:
+
+  ```sql
+  SELECT session_id, model, MAX(input_tokens + output_tokens) AS peak
+  FROM assistant_usage_events
+  WHERE agent_id IS NULL
+  GROUP BY session_id, model
+  ```
+
+  `agent_id IS NULL` excludes subagent requests. `input_tokens` in this
+  table is cache-inclusive, so `input_tokens + output_tokens` is the full
+  per-request footprint. Results are loaded into a
+  `dict[(session_id, model)] -> peak` and attached to each record as
+  `context_peak_tokens`. If the table does not exist (`OperationalError`),
+  the dict is empty and all peaks default to `0` — no warning is emitted.
+
+  The `assistant_usage_events` table schema:
+
+  | Column | Meaning |
+  | --- | --- |
+  | `session_id` | session the request belongs to |
+  | `turn_index` | conversation turn |
+  | `agent_id` | `NULL` for main conversation; set for subagents |
+  | `model` | model id for the request |
+  | `input_tokens` | total prompt tokens (cache-inclusive) |
+  | `output_tokens` | response tokens |
+  | `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens` | breakdown fields |
+
 ### Claude CLI (`src/collectors/claude_cli.py`, source = `claude_cli`)
 
 Each Claude Code conversation is one JSONL file:
@@ -205,6 +241,22 @@ Each Claude Code conversation is one JSONL file:
   | `cache_creation_input_tokens` | `cache_creation_tokens` |
   | `cache_read_input_tokens` | `cache_read_tokens` |
 
+- **Tool calls** — `tool_use` content blocks within each assistant
+  message's `content` list are counted into `tool_calls`. Messages with
+  string content are skipped safely.
+
+- **Context peak** — for each assistant message the collector computes the
+  per-message token footprint:
+
+  ```
+  input_tokens + cache_read_input_tokens + cache_creation_input_tokens + output_tokens
+  ```
+
+  The maximum across all messages becomes `context_peak_tokens` on the
+  record. `input_tokens` here **excludes** cache, so all cache components
+  are added explicitly. `reasoning_tokens` stays `0` — the Claude CLI JSONL
+  has no source field for it.
+
 - Session `start_ts`/`end_ts` are the min/max `timestamp` across all
   entries; the model comes from the first assistant `message.model`.
   The collector passes `(cwd_basename, first_cwd_seen)` into the shared
@@ -216,6 +268,30 @@ Each Claude Code conversation is one JSONL file:
 Those surfaces render token data live in the UI but never persist it to
 disk — there is nothing to collect. Do not add a collector for a surface
 unless it starts persisting token data.
+
+### `context_peak_tokens` semantics
+
+`context_peak_tokens` represents the largest total token footprint of any
+single API request within a session:
+
+```
+peak = MAX over requests of (prompt tokens + output tokens)
+     where prompt tokens = input + cache read + cache write
+```
+
+Key properties:
+- Values are **exact API-reported figures** — no estimation.
+- Computed per `(session_id, source, model)`, matching the merge key.
+- **Subagent requests are excluded** (Copilot: `agent_id IS NULL` filter;
+  Claude: no subagent rows exist in the JSONL files). The peak reflects the
+  main conversation context window only. Consequently, a model whose usage
+  in a session came entirely from subagent requests gets
+  `context_peak_tokens = 0` even though its token counts are non-zero.
+- Defaults to `0` when unavailable (older Copilot installs without the
+  `assistant_usage_events` table, sessions with no assistant activity). No
+  fallback estimation is performed.
+- Re-running `collect --lookback N` backfills peaks for sessions whose
+  source files still exist.
 
 ## Storage
 
@@ -249,12 +325,19 @@ keeps the package extractable into its own repository later.
 - `--period` scopes every view: `day` (default, today) | `month` | `year` |
   `all` (no date filter).
 - **Default view** — one row per session: Project, Source, Model, Start,
-  End, Input, Output, CacheRead, CacheCreate, CacheHit%, Turns.
+  End, Input, Output, Reasoning, CacheRead, CacheCreate, CacheHit%,
+  CtxPeak, Turns, Tools.
 - **`--summary`** — compact per-session view; combined with a period it
   becomes an aggregated roll-up grouped by period + model.
 - **`--by-project`** — groups by project (requires a non-null
   `sessions.project`; default `--project-mode no` produces stable per-project
   GUIDs even when real names are masked).
+- **`--detailed`** — dumps every row in the database regardless of date,
+  with all 17 columns: Session, Source, Model, Date, Start, End, Project,
+  Turns, Tools, Input, Output, CacheCreate, CacheRead, CtxPeak, Reasoning,
+  Context, and **Synced** (comma-separated store names from `sync_log`,
+  empty if never synced). Overrides `--summary` and `--by-project`; ignores
+  `--period`; `--model` filter still applies; works with `--json`.
 - **Cache hit %** = cache reads as a share of total input-side tokens; a
   header line reports overall cache efficiency (cache reads cost ~10% of
   regular input tokens).
@@ -320,7 +403,10 @@ collected while offline.
 `token_sessions` table with `on_conflict="session_id,source,model"`
 (mirroring the local primary key). The client is created lazily on first
 upsert; requires the optional dependency `supabase>=2.0`
-(`pip install tokentracer[supabase]`). Configuration:
+(`pip install tokentracer[supabase]`). The upserted payload includes
+`tool_calls`, `reasoning_tokens`, and `context_peak_tokens`; the remote
+`token_sessions` table must have those bigint columns (see `README.md` for
+the full `CREATE TABLE` and `ALTER TABLE` migration snippets). Configuration:
 
 ```toml
 [stores.supabase]

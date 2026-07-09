@@ -48,7 +48,15 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 ## Outcome
 
 <!-- outcome -->
-This usage analytics tool provides exact token counts per session, model, and tool, along with cache efficiency metrics and estimated cost savings. It offers trend analysis across daily, monthly, and yearly views, optional project-level usage breakdowns, and context labels such as work or personal. Data collection is idempotent for safe scheduled runs, supports remote synchronization to pluggable backends like Supabase, and generates heatmap-ready datasets for future visualization and usage-intensity analysis.
+This usage analytics tool provides exact token counts per session, model, and tool, along with cache efficiency metrics and estimated cost savings. Key features include:
+
+- Tracks tool calls per session (Copilot tool events / Claude tool_use blocks)
+- Tracks context peak — the largest single-request token footprint per session (main conversation only; models used solely by subagents show 0)
+- Trend analysis across daily, monthly, and yearly views
+- Optional project-level usage breakdowns and context labels (work / personal)
+- Idempotent data collection for safe scheduled runs
+- Remote synchronization to pluggable backends like Supabase
+- Heatmap-ready datasets for future visualization and usage-intensity analysis
 <!-- /outcome -->
 
 ---
@@ -71,8 +79,8 @@ This usage analytics tool provides exact token counts per session, model, and to
 
 | Source | Location | Metrics |
 |---|---|---|
-| Copilot CLI | `~/.copilot/session-store.db` + `session-state/<id>/events.jsonl` | sessions, turns, per-model token counts (input, output, cache read/write, reasoning) |
-| Claude Code CLI | `~/.claude/projects/**/*.jsonl` | per-session token counts (input, output, cache read/write) |
+| Copilot CLI | `~/.copilot/session-store.db` + `session-state/<id>/events.jsonl` | sessions, turns, per-model token counts (input, output, cache read/write, reasoning), tool calls, context peak tokens |
+| Claude Code CLI | `~/.claude/projects/**/*.jsonl` | per-session token counts (input, output, cache read/write), tool calls, context peak tokens |
 
 ---
 
@@ -108,7 +116,7 @@ Collector.collect(since)          one collector per AI tool surface
 - Upsert is **last-write-wins** — no summation across runs.
 - Collectors are **read-only** with respect to their source files.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture: collect data flow, exact source files and schemas, storage, sync, and extension points.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture: collect data flow, exact source files and schemas, storage, sync, and extension points. [docs/DESIGN-HISTORY.md](docs/DESIGN-HISTORY.md) records the design decisions that shaped the project.
 
 ---
 
@@ -131,7 +139,7 @@ ai-token/
 │  │  ├─ registry.py        # store discovery + instantiation (env var expansion)
 │  │  ├─ sqlite.py          # SqliteStore — local db, idempotent upsert, sync tracking
 │  │  └─ supabase.py        # SupabaseStore — remote Supabase sink
-│  ├─ report.py             # UsageReporter (day/month/year, cache efficiency, --summary, --by-project)
+│  ├─ report.py             # UsageReporter (day/month/year, cache efficiency, --summary, --by-project, --detailed)
 │  ├─ pipeline.py           # fluent TrackerPipeline
 │  └─ config.py             # Paths, TOML loading, write_toml_setting
 ├─ tests/                   # pytest suite with fixtures
@@ -165,7 +173,7 @@ uv tool install https://github.com/rbipin/TokenTrace/releases/download/v0.1.0/to
 pip install https://github.com/rbipin/TokenTrace/releases/download/v0.1.0/tokentracer-0.1.0-py3-none-any.whl
 
 # from source at a tag
-uv tool install git+https://github.com/rbipin/TokenTrace@v0.1.0
+uv tool install git+https://github.com/rbipin/TokenTrace@{version}
 pip install git+https://github.com/rbipin/TokenTrace@v0.1.0
 
 # with the Supabase store extra
@@ -219,7 +227,7 @@ python tracker.py collect --project-mode whimsical
 
 # Default report — today's sessions, one row per session, full token detail
 python3 tracker.py report
-# Columns: Project  Source  Model  Start  End  Input  Output  CacheRead  CacheCreate  CacheHit%  Turns
+# Columns: Project  Source  Model  Start  End  Input  Output  Reasoning  CacheRead  CacheCreate  CacheHit%  CtxPeak  Turns  Tools
 
 # Scope to a different period (all | day | month | year)
 python3 tracker.py report --period month        # this month's sessions, detailed
@@ -236,6 +244,9 @@ python3 tracker.py report --summary --period all
 # --by-project: group by project
 python3 tracker.py report --by-project                          # today, by project
 python3 tracker.py report --summary --period all --by-project   # all history, by project
+
+# Dump every row in the db with all columns and sync status
+python3 tracker.py report --detailed
 
 # Filter by model, emit JSON — combinable with any of the above
 python3 tracker.py report --period month --model claude-sonnet-4-6
@@ -366,13 +377,24 @@ create table token_sessions (
   end_ts timestamptz,
   project text,
   turns integer default 0,
+  tool_calls bigint default 0,
   input_tokens bigint default 0,
   output_tokens bigint default 0,
   cache_creation_tokens bigint default 0,
   cache_read_tokens bigint default 0,
+  reasoning_tokens bigint default 0,
+  context_peak_tokens bigint default 0,
   context text default 'personal',
   primary key (session_id, source, model)
 );
+```
+
+If you have an existing `token_sessions` table, add the new columns:
+
+```sql
+ALTER TABLE token_sessions ADD COLUMN tool_calls bigint DEFAULT 0;
+ALTER TABLE token_sessions ADD COLUMN reasoning_tokens bigint DEFAULT 0;
+ALTER TABLE token_sessions ADD COLUMN context_peak_tokens bigint DEFAULT 0;
 ```
 
 Then:

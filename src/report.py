@@ -55,9 +55,12 @@ class SessionsDetailedView:
                 end_ts,
                 input_tokens,
                 output_tokens,
+                reasoning_tokens,
                 cache_read_tokens,
                 cache_creation_tokens,
+                context_peak_tokens,
                 turns,
+                tool_calls,
                 input_tokens + cache_creation_tokens + cache_read_tokens AS denom
             FROM sessions
             WHERE {ctx.date_filter}{ctx.model_filter}
@@ -85,17 +88,21 @@ class SessionsDetailedView:
                 (r["end_ts"] or "")[:19],
                 r["input_tokens"],
                 r["output_tokens"],
+                r["reasoning_tokens"],
                 r["cache_read_tokens"],
                 r["cache_creation_tokens"],
                 cache_pct,
+                r["context_peak_tokens"],
                 r["turns"],
+                r["tool_calls"],
             ])
 
         return _format_table(
             ctx.hit_rate,
             ctx.cost_saved,
             headers=["Project", "Source", "Model", "Start", "End",
-                     "Input", "Output", "CacheRead", "CacheCreate", "CacheHit%", "Turns"],
+                     "Input", "Output", "Reasoning", "CacheRead", "CacheCreate",
+                     "CacheHit%", "CtxPeak", "Turns", "Tools"],
             rows=table_rows,
         )
 
@@ -242,11 +249,85 @@ class SessionsListView:
         )
 
 
+class FullDumpView:
+    """--detailed: every row in the db, every column, plus sync status."""
+
+    def render(self, ctx: ReportContext) -> str:
+        # No date filter by design: --detailed always dumps the whole table.
+        # sync_log is folded in via a correlated subquery to avoid aliasing
+        # the sessions table (ctx.model_filter references bare column names).
+        rows = ctx.conn.execute(f"""
+            SELECT
+                session_id,
+                source,
+                model,
+                date,
+                start_ts,
+                end_ts,
+                COALESCE(project, '—')  AS project,
+                turns,
+                tool_calls,
+                input_tokens,
+                output_tokens,
+                cache_creation_tokens,
+                cache_read_tokens,
+                context_peak_tokens,
+                reasoning_tokens,
+                context,
+                COALESCE((
+                    SELECT GROUP_CONCAT(store_name, ',')
+                    FROM (
+                        SELECT l.store_name
+                        FROM sync_log l
+                        WHERE l.session_id = sessions.session_id
+                          AND l.source = sessions.source
+                          AND l.model = sessions.model
+                        ORDER BY l.store_name
+                    )
+                ), '')                  AS synced
+            FROM sessions
+            WHERE 1=1{ctx.model_filter}
+            ORDER BY COALESCE(start_ts, date) DESC
+        """, ctx.params).fetchall()
+
+        if ctx.as_json:
+            return json.dumps({
+                "cache_efficiency": {
+                    "hit_rate": round(ctx.hit_rate, 4),
+                    "cost_saved_rate": round(ctx.cost_saved, 4),
+                },
+                "rows": [dict(r) for r in rows],
+            }, indent=2)
+
+        return _format_table(
+            ctx.hit_rate,
+            ctx.cost_saved,
+            headers=["Session", "Source", "Model", "Date", "Start", "End",
+                     "Project", "Turns", "Tools", "Input", "Output",
+                     "CacheCreate", "CacheRead", "CtxPeak", "Reasoning",
+                     "Context", "Synced"],
+            rows=[
+                [r["session_id"], r["source"], r["model"], r["date"],
+                 (r["start_ts"] or "")[:19], (r["end_ts"] or "")[:19],
+                 r["project"], r["turns"], r["tool_calls"],
+                 r["input_tokens"], r["output_tokens"],
+                 r["cache_creation_tokens"], r["cache_read_tokens"],
+                 r["context_peak_tokens"], r["reasoning_tokens"],
+                 r["context"], r["synced"]]
+                for r in rows
+            ],
+        )
+
+
 # ── Dispatch ───────────────────────────────────────────────────────────────
 
 
-def _pick_strategy(summary: bool, by_project: bool, period: str) -> ReportStrategy:
-    """Select the correct render strategy from the three dispatch axes."""
+def _pick_strategy(
+    summary: bool, by_project: bool, period: str, detailed: bool = False
+) -> ReportStrategy:
+    """Select the correct render strategy from the dispatch axes."""
+    if detailed:
+        return FullDumpView()
     if by_project:
         return ByProjectView()
     if not summary:
@@ -317,13 +398,14 @@ class UsageReporter:
         by_project: bool = False,
         summary: bool = False,
         as_json: bool = False,
+        detailed: bool = False,
     ) -> str:
         if period not in _PERIOD_SQL:
             raise ValueError(f"period must be one of {list(_PERIOD_SQL)}")
         conn = self._connect()
         try:
             ctx = self._make_context(conn, period, models, as_json)
-            return _pick_strategy(summary, by_project, period).render(ctx)
+            return _pick_strategy(summary, by_project, period, detailed).render(ctx)
         finally:
             conn.close()
 

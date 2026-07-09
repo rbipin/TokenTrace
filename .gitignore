@@ -38,3 +38,5 @@ Desktop.ini
 .serena
 *.env
 .superpowers
+.superpowers/*
+.superpowers/sdd/

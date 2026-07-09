@@ -163,3 +163,48 @@ def test_project_uses_repo_slug_when_cwd_is_git_repo(tmp_path):
     r = list(ClaudeCliCollector(tmp_path, resolver=stub).collect(date(2026, 7, 3)))[0]
     assert r.project == "RESOLVED"
     assert stub.calls[0] == ("rbipin/TokenTrace", "rbipin/TokenTrace")
+
+
+def test_tool_calls_counted_from_tool_use_blocks(tmp_path):
+    e1 = _asst("2026-07-03T10:00:00.000Z", "claude-sonnet-4-6", 100, 50)
+    e1["message"]["content"] = [
+        {"type": "text", "text": "let me look"},
+        {"type": "tool_use", "id": "t1", "name": "Read", "input": {}},
+        {"type": "tool_use", "id": "t2", "name": "Grep", "input": {}},
+    ]
+    e2 = _asst("2026-07-03T10:05:00.000Z", "claude-sonnet-4-6", 100, 20)
+    e2["message"]["content"] = [
+        {"type": "tool_use", "id": "t3", "name": "Edit", "input": {}},
+    ]
+    _write_session(tmp_path, "sess-tools", [e1, e2])
+    r = list(ClaudeCliCollector(tmp_path).collect(date(2026, 7, 3)))[0]
+    assert r.tool_calls == 3
+
+
+def test_string_content_not_counted_and_no_crash(tmp_path):
+    e = _asst("2026-07-03T10:00:00.000Z", "claude-sonnet-4-6", 100, 50)
+    e["message"]["content"] = "plain string reply"
+    _write_session(tmp_path, "sess-str", [e])
+    r = list(ClaudeCliCollector(tmp_path).collect(date(2026, 7, 3)))[0]
+    assert r.tool_calls == 0
+
+
+def test_context_peak_is_max_message_footprint(tmp_path):
+    _write_session(tmp_path, "sess-peak", [
+        # footprint = 10 + 40000 + 500 + 100 = 40610
+        _asst("2026-07-03T10:00:00.000Z", "claude-sonnet-4-6", 10, 100,
+              cache_create=500, cache_read=40000),
+        # footprint = 20 + 44000 + 600 + 90 = 44710  <- peak
+        _asst("2026-07-03T10:05:00.000Z", "claude-sonnet-4-6", 20, 90,
+              cache_create=600, cache_read=44000),
+    ])
+    r = list(ClaudeCliCollector(tmp_path).collect(date(2026, 7, 3)))[0]
+    assert r.context_peak_tokens == 44710
+
+
+def test_reasoning_tokens_stay_zero(tmp_path):
+    _write_session(tmp_path, "sess-r", [
+        _asst("2026-07-03T10:00:00.000Z", "claude-sonnet-4-6", 10, 5),
+    ])
+    r = list(ClaudeCliCollector(tmp_path).collect(date(2026, 7, 3)))[0]
+    assert r.reasoning_tokens == 0
