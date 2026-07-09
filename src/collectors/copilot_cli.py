@@ -110,11 +110,14 @@ class CopilotCliCollector:
             return
 
         # Single pass: prefer the shutdown event (per-model breakdown), while
-        # accumulating assistant-message totals as the fallback.
+        # accumulating assistant-message totals as the fallback. Tool calls
+        # exist only as discrete events, so the scan always runs to the end.
         totals = dict(input_tokens=0, output_tokens=0, cache_read_tokens=0,
                       cache_creation_tokens=0, reasoning_tokens=0)
         turns = 0
         model = UNKNOWN_MODEL
+        tool_calls_by_model: dict[str, int] = {}
+        shutdown_payload: dict | None = None
 
         for line in events_path.read_text(encoding="utf-8", errors="replace").splitlines():
             line = line.strip()
@@ -127,10 +130,12 @@ class CopilotCliCollector:
             event_type = event.get("type")
             payload = event.get("data") or event  # new CLI nests under "data"
             if event_type == "session.shutdown":
-                yield from self._from_shutdown(
-                    payload, session_id, date_str, start_ts, end_ts, project
-                )
-                return
+                shutdown_payload = payload
+                continue
+            if event_type == "tool.execution_complete":
+                tool_model = payload.get("model") or model
+                tool_calls_by_model[tool_model] = tool_calls_by_model.get(tool_model, 0) + 1
+                continue
             if event_type != "assistant.message":
                 continue
             turns += 1
@@ -145,6 +150,13 @@ class CopilotCliCollector:
             totals["cache_creation_tokens"] += usage.get("cacheWriteTokens", 0)
             totals["reasoning_tokens"] += usage.get("reasoningTokens", 0)
 
+        if shutdown_payload is not None:
+            yield from self._from_shutdown(
+                shutdown_payload, session_id, date_str, start_ts, end_ts,
+                project, tool_calls_by_model,
+            )
+            return
+
         yield SessionRecord(
             session_id=session_id,
             source=self.source,
@@ -154,13 +166,14 @@ class CopilotCliCollector:
             end_ts=end_ts,
             project=project,
             turns=turns,
+            tool_calls=sum(tool_calls_by_model.values()),
             **totals,
         )
 
     def _from_shutdown(
         self, payload: dict, session_id: str,
         date_str: str, start_ts: str | None, end_ts: str | None,
-        project: str | None,
+        project: str | None, tool_calls_by_model: dict[str, int],
     ) -> Iterator[SessionRecord]:
         metrics: dict = payload.get("modelMetrics") or {}
         for model, m in metrics.items():
@@ -177,6 +190,7 @@ class CopilotCliCollector:
                 end_ts=end_ts,
                 project=project,
                 turns=turns,
+                tool_calls=tool_calls_by_model.get(model, 0),
                 input_tokens=usage.get("inputTokens", 0),
                 output_tokens=usage.get("outputTokens", 0),
                 cache_read_tokens=usage.get("cacheReadTokens", 0),

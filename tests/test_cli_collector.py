@@ -193,3 +193,54 @@ def test_project_slug_resolved_from_cwd_git_config(tmp_path):
     stub = StubResolver()
     list(CopilotCliCollector(home, resolver=stub).collect(date(2026, 6, 10)))
     assert stub.calls == [("acme/widgets", "acme/widgets")]
+
+
+def _tool_event(model: str | None = None) -> dict:
+    e: dict = {"type": "tool.execution_complete"}
+    if model:
+        e["model"] = model
+    return e
+
+
+def test_tool_calls_counted_per_model_with_shutdown(tmp_path):
+    home = _make_home(tmp_path)
+    _add_session(home, "s1", "/work/x", "owner/x",
+                 "2026-06-10T12:00:00.000Z", "2026-06-10T13:00:00.000Z")
+    _write_events(home, "s1", [
+        _tool_event("model-a"),
+        _tool_event("model-a"),
+        _tool_event("model-b"),
+        _shutdown({
+            "model-a": {"turns": 2, "input": 100, "output": 10},
+            "model-b": {"turns": 1, "input": 50, "output": 5},
+        }),
+    ])
+    records = {r.model: r for r in CopilotCliCollector(home).collect(date(2026, 6, 10))}
+    assert records["model-a"].tool_calls == 2
+    assert records["model-b"].tool_calls == 1
+
+
+def test_tool_calls_summed_in_fallback_without_shutdown(tmp_path):
+    home = _make_home(tmp_path)
+    _add_session(home, "s1", "/work/x", "owner/x",
+                 "2026-06-10T12:00:00.000Z", "2026-06-10T13:00:00.000Z")
+    _write_events(home, "s1", [
+        {"type": "assistant.message", "model": "model-a",
+         "usage": {"inputTokens": 10, "outputTokens": 5}},
+        _tool_event("model-a"),
+        _tool_event(),  # no model field — still counted in the session total
+    ])
+    records = list(CopilotCliCollector(home).collect(date(2026, 6, 10)))
+    assert len(records) == 1
+    assert records[0].tool_calls == 2
+
+
+def test_tool_calls_zero_when_no_tool_events(tmp_path):
+    home = _make_home(tmp_path)
+    _add_session(home, "s1", "/work/x", "owner/x",
+                 "2026-06-10T12:00:00.000Z", "2026-06-10T13:00:00.000Z")
+    _write_events(home, "s1", [
+        _shutdown({"model-a": {"turns": 1, "input": 10, "output": 1}}),
+    ])
+    r = list(CopilotCliCollector(home).collect(date(2026, 6, 10)))[0]
+    assert r.tool_calls == 0
