@@ -38,6 +38,7 @@ class CopilotCliCollector:
         conn.row_factory = sqlite3.Row
         try:
             rows = self._query_sessions(conn)
+            peaks = self._query_context_peaks(conn)
         except sqlite3.OperationalError as exc:
             print(
                 f"Warning [copilot_cli]: could not read sessions table: {exc}",
@@ -73,7 +74,7 @@ class CopilotCliCollector:
             end_iso = to_local_iso(end_ts)
 
             yield from self._parse_events(
-                session_id, date_str, start_iso, end_iso, project
+                session_id, date_str, start_iso, end_iso, project, peaks
             )
 
     @staticmethod
@@ -97,6 +98,28 @@ class CopilotCliCollector:
             f"{start_col} AS start_ts, {end_col} AS end_ts FROM sessions"
         ).fetchall()
 
+    @staticmethod
+    def _query_context_peaks(
+        conn: sqlite3.Connection,
+    ) -> dict[tuple[str, str], int]:
+        """Max single-request footprint per (session, model), main conversation only.
+
+        Copilot's assistant_usage_events.input_tokens already includes cache
+        read + cache write, so the footprint is input + output. Returns an
+        empty dict when the table doesn't exist (older CLI versions).
+        """
+        try:
+            rows = conn.execute("""
+                SELECT session_id, model,
+                       MAX(input_tokens + output_tokens) AS peak
+                FROM assistant_usage_events
+                WHERE agent_id IS NULL
+                GROUP BY session_id, model
+            """).fetchall()
+        except sqlite3.OperationalError:
+            return {}
+        return {(r["session_id"], r["model"]): r["peak"] or 0 for r in rows}
+
     def _parse_events(
         self,
         session_id: str,
@@ -104,6 +127,7 @@ class CopilotCliCollector:
         start_ts: str | None,
         end_ts: str | None,
         project: str | None,
+        peaks: dict[tuple[str, str], int],
     ) -> Iterator[SessionRecord]:
         events_path = self._home / "session-state" / session_id / "events.jsonl"
         if not events_path.exists():
@@ -153,7 +177,7 @@ class CopilotCliCollector:
         if shutdown_payload is not None:
             yield from self._from_shutdown(
                 shutdown_payload, session_id, date_str, start_ts, end_ts,
-                project, tool_calls_by_model,
+                project, tool_calls_by_model, peaks,
             )
             return
 
@@ -167,6 +191,7 @@ class CopilotCliCollector:
             project=project,
             turns=turns,
             tool_calls=sum(tool_calls_by_model.values()),
+            context_peak_tokens=peaks.get((session_id, model), 0),
             **totals,
         )
 
@@ -174,6 +199,7 @@ class CopilotCliCollector:
         self, payload: dict, session_id: str,
         date_str: str, start_ts: str | None, end_ts: str | None,
         project: str | None, tool_calls_by_model: dict[str, int],
+        peaks: dict[tuple[str, str], int],
     ) -> Iterator[SessionRecord]:
         metrics: dict = payload.get("modelMetrics") or {}
         for model, m in metrics.items():
@@ -196,4 +222,5 @@ class CopilotCliCollector:
                 cache_read_tokens=usage.get("cacheReadTokens", 0),
                 cache_creation_tokens=usage.get("cacheWriteTokens", 0),
                 reasoning_tokens=usage.get("reasoningTokens", 0),
+                context_peak_tokens=peaks.get((session_id, model), 0),
             )
