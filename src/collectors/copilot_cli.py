@@ -10,6 +10,7 @@ from typing import Iterator
 
 from .base import to_date, to_local_iso
 from ..models import SessionRecord, UNKNOWN_MODEL
+from ..repo_identity import resolve_repo_slug
 
 _TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)")
 
@@ -59,8 +60,13 @@ class CopilotCliCollector:
             if self._resolver is not None:
                 repo: str = row["repository"] or ""
                 cwd: str = row["cwd"] or ""
-                display_name = repo.split("/")[-1] if repo else (Path(cwd).name or None)
-                project = self._resolver.resolve(display_name, cwd or None)
+                project_key = (
+                    repo
+                    or resolve_repo_slug(cwd)
+                    or (Path(cwd).name if cwd else None)
+                    or None
+                )
+                project = self._resolver.resolve(project_key, project_key)
 
             date_str = session_date.isoformat()
             start_iso = to_local_iso(start_ts)

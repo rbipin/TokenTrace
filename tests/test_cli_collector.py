@@ -138,7 +138,7 @@ def test_project_inputs_prefer_repository(tmp_path):
     stub = StubResolver()
     r = list(CopilotCliCollector(home, resolver=stub).collect(date(2026, 6, 10)))[0]
     assert r.project == "RESOLVED"
-    assert stub.calls == [("myrepo", "/work/x")]
+    assert stub.calls == [("owner/myrepo", "owner/myrepo")]
 
 
 def test_project_inputs_fall_back_to_cwd_basename(tmp_path):
@@ -150,7 +150,7 @@ def test_project_inputs_fall_back_to_cwd_basename(tmp_path):
     ])
     stub = StubResolver()
     list(CopilotCliCollector(home, resolver=stub).collect(date(2026, 6, 10)))
-    assert stub.calls == [("localproject", "/work/localproject")]
+    assert stub.calls == [("localproject", "localproject")]
 
 
 def test_project_none_without_resolver(tmp_path):
@@ -173,4 +173,23 @@ def test_end_to_end_with_real_resolver_yes_mode(tmp_path):
     ])
     resolver = ProjectNameResolver("yes")
     r = list(CopilotCliCollector(home, resolver=resolver).collect(date(2026, 6, 10)))[0]
-    assert r.project == "myrepo"
+    assert r.project == "owner/myrepo"
+
+
+def test_project_slug_resolved_from_cwd_git_config(tmp_path):
+    home = _make_home(tmp_path)
+    repo_dir = tmp_path / "checkout"
+    git = repo_dir / ".git"
+    git.mkdir(parents=True)
+    (git / "config").write_text(
+        '[remote "origin"]\n\turl = git@github.com:acme/widgets.git\n',
+        encoding="utf-8",
+    )
+    _add_session(home, "s1", str(repo_dir), "",
+                 "2026-06-10T12:00:00.000Z", "2026-06-10T12:30:00.000Z")
+    _write_events(home, "s1", [
+        _shutdown({"claude-sonnet-4-6": {"turns": 1, "input": 100, "output": 20}}),
+    ])
+    stub = StubResolver()
+    list(CopilotCliCollector(home, resolver=stub).collect(date(2026, 6, 10)))
+    assert stub.calls == [("acme/widgets", "acme/widgets")]

@@ -1,4 +1,8 @@
-"""Local-only project identity mapping: cwd -> guid -> whimsical name.
+"""Local-only project identity mapping: project key -> guid -> whimsical name.
+
+Project keys are repo slugs (``owner/repo``) or cwd folder names — full
+paths are never stored (collectors resolve to a slug/folder name before
+calling this store).
 
 The ``project_identities`` table lives in the same SQLite file as the
 session store but is intentionally invisible to the sync machinery — it is
@@ -37,8 +41,9 @@ class ProjectIdentityStore:
 
     def __init__(self, db_path: Path | str) -> None:
         self._db_path = Path(db_path)
-        with closing(self._connect()) as conn, conn:
-            conn.execute(_CREATE_IDENTITIES)
+        with closing(self._connect()) as conn:
+            with conn:
+                conn.execute(_CREATE_IDENTITIES)
 
     def _connect(self) -> sqlite3.Connection:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)

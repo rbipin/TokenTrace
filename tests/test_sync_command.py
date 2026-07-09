@@ -39,7 +39,7 @@ def test_sync_pushes_unsynced(tmp_path):
     sqlite = _seed(db, "s1", "s2")
     remote = _StubRemote("supabase")
 
-    from tracker import _run_sync
+    from src.commands.sync import _run_sync
     result = _run_sync(sqlite, [remote], dry_run=False)
 
     assert result == {"supabase": {"pushed": 2, "failed": False}}
@@ -52,7 +52,7 @@ def test_sync_dry_run_does_not_push(tmp_path):
     sqlite = _seed(db, "s1")
     remote = _StubRemote("supabase")
 
-    from tracker import _run_sync
+    from src.commands.sync import _run_sync
     result = _run_sync(sqlite, [remote], dry_run=True)
 
     assert result == {"supabase": {"pending": 1}}
@@ -65,7 +65,7 @@ def test_sync_remote_failure_leaves_unsynced(tmp_path):
     sqlite = _seed(db, "s1")
     bad_remote = _StubRemote("cosmos", boom=True)
 
-    from tracker import _run_sync
+    from src.commands.sync import _run_sync
     result = _run_sync(sqlite, [bad_remote], dry_run=False)
 
     assert result["cosmos"]["failed"] is True
@@ -79,8 +79,9 @@ def test_sync_already_synced_not_pushed_again(tmp_path):
     # Pre-mark s1 as synced
     sqlite.mark_synced([_rec("s1")], "supabase")
 
-    from tracker import _run_sync
+    from src.commands.sync import _run_sync
     _run_sync(sqlite, [remote], dry_run=False)
 
     assert len(remote.pushed) == 1
     assert remote.pushed[0].session_id == "s2"
+

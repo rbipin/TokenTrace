@@ -41,7 +41,7 @@ python3 tracker.py report --summary --period month --json
 python3 tracker.py config set track_project_names whimsical   # yes | no | whimsical
 python3 tracker.py config set context work   # label this machine's usage ("work"/"personal")
 
-# List local project identities (cwd -> guid -> whimsical name; never synced)
+# List local project identities (project key → guid → whimsical name; never synced)
 python3 tracker.py projects
 
 # Sync unsynced records to configured remote stores (e.g., Supabase)
@@ -60,10 +60,20 @@ No build step — standard library only at runtime. Install `pytest` for testing
 The tracker follows an **Open/Closed pipeline**: adding a new data source only requires implementing the `ActivityCollector` protocol and registering it in `tracker.py`. No other module needs to change.
 
 ```
-tracker.py               CLI entry point (collect / report / config / sync / projects subcommands)
+tracker.py               CLI entry point — builds argparse from the command registry and dispatches
 src/
+  commands/              Command pattern + static registry: one module per subcommand
+    base.py              Command protocol (name, help, configure(parser), run(args) -> int)
+    __init__.py          COMMANDS registry list (add new commands here)
+    collect.py           CollectCommand (+ _build_pipeline / _build_stores helpers)
+    report.py            ReportCommand
+    config.py            ConfigCommand (owns its own set sub-dispatch)
+    projects.py          ProjectsCommand
+    sync.py              SyncCommand (+ _run_sync core logic)
+    common.py            load_remote_stores helper shared by collect/sync
   models.py              SessionRecord frozen dataclass; merge_records deduplicates by (session_id, source, model)
-  project_identity.py    ProjectIdentityStore (local-only cwd→guid→whimsical table) + ProjectNameResolver (tri-state naming policy)
+  project_identity.py    ProjectIdentityStore (local-only project-key→guid→whimsical table; keys are repo slugs or folder names, never full paths) + ProjectNameResolver (tri-state naming policy)
+  repo_identity.py       resolve_repo_slug(cwd): walks up to .git, parses origin remote from config -> owner/repo (read-only, cached, never raises)
   collectors/
     base.py              ActivityCollector protocol + to_date / to_local_iso helpers
     copilot_cli.py       Reads session-store.db + events.jsonl from ~/.copilot/; yields per-(session, model) records
@@ -87,9 +97,9 @@ src/
 - Upsert is **last-write-wins** (INSERT OR REPLACE). There is no summation across runs.
 - Collectors are **read-only** with respect to their source files — they must never write to them.
 
-**UsageStore schema**: `sessions` table with PRIMARY KEY `(session_id, source, model)`. On first connect, if an old `usage` / `daily_activity` table exists it is dropped with a warning and the user is asked to re-collect. A separate local-only `project_identities` table stores normalized cwd → guid → whimsical-name mappings and is never queried by sync code.
+**UsageStore schema**: `sessions` table with PRIMARY KEY `(session_id, source, model)`. On first connect, if an old `usage` / `daily_activity` table exists it is dropped with a warning and the user is asked to re-collect. A separate local-only `project_identities` table stores normalized project key → guid → whimsical-name mappings and is never queried by sync code.
 
-**Config file**: `~/.tokentracer.toml`. `[tracking]` supports `track_project_names` as a string enum: `"yes"` (real name), `"no"` (stable 12-hex guid per cwd; default), or `"whimsical"` (stable docker-style masked name). `tracker.py config set track_project_names <value>` validates against that enum; invalid or legacy boolean TOML values warn and fall back to `"no"`. The `collect` CLI overrides it per run with `--project-mode <yes|no|whimsical>`. `[tracking]` also supports `context` (string, default `"personal"`) — a usage-context label (e.g. `"work"`) stamped on every collected `SessionRecord` via `TrackerPipeline.context()` and stored in the `context` column of the `sessions` table (and pushed to remote stores); CLI flag `--context <label>` on `collect` overrides it per run. `[stores.<name>]` sections declare remote stores (see below); `${VAR}` placeholders in string values are expanded at instantiation time — lookup order is `os.environ` first, then `~/.tokentracer.env` (simple `KEY=VALUE` file, `#` comments, optional quotes). Missing vars raise `ValueError`.
+**Config file**: `~/.tokentracer.toml`. `[tracking]` supports `track_project_names` as a string enum: `"yes"` (real name), `"no"` (stable 12-hex guid per project (repo slug or folder name); default), or `"whimsical"` (stable docker-style masked name). Project identity is keyed by git repo slug (`owner/repo` — from the Copilot session `repository` column, or by reading `<cwd>/.git/config` origin remote for Claude sessions), falling back to the cwd folder name; full paths are never stored. Two clones of the same repo therefore map to one project. `yes` mode displays the full slug (e.g. `rbipin/TokenTrace`). `tracker.py config set track_project_names <value>` validates against that enum; invalid or legacy boolean TOML values warn and fall back to `"no"`. The `collect` CLI overrides it per run with `--project-mode <yes|no|whimsical>`. `[tracking]` also supports `context` (string, default `"personal"`) — a usage-context label (e.g. `"work"`) stamped on every collected `SessionRecord` via `TrackerPipeline.context()` and stored in the `context` column of the `sessions` table (and pushed to remote stores); CLI flag `--context <label>` on `collect` overrides it per run. `[stores.<name>]` sections declare remote stores (see below); `${VAR}` placeholders in string values are expanded at instantiation time — lookup order is `os.environ` first, then `~/.tokentracer.env` (simple `KEY=VALUE` file, `#` comments, optional quotes). Missing vars raise `ValueError`.
 
 ## Stores registry (remote sinks)
 
@@ -129,7 +139,7 @@ table = "token_sessions"     # optional, this is the default
 1. Create `src/collectors/<name>.py` implementing `ActivityCollector` (`source: str` class attr + `collect(since: date) -> Iterable[SessionRecord]`).
 2. Export it from `src/collectors/__init__.py`.
 3. Add the relevant path to `Paths` in `src/config.py`.
-4. Instantiate it in `_build_pipeline()` in `tracker.py`.
+4. Instantiate it in `_build_pipeline()` in `src/commands/collect.py`.
 5. Add tests under `tests/` using `tmp_path` to create fixture files.
 
 Nothing else needs to change.

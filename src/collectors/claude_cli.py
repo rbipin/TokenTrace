@@ -7,6 +7,7 @@ from typing import Iterator
 
 from .base import to_date, to_local_iso
 from ..models import SessionRecord, UNKNOWN_MODEL
+from ..repo_identity import resolve_repo_slug
 
 
 class ClaudeCliCollector:
@@ -101,7 +102,8 @@ class ClaudeCliCollector:
 
         project: str | None = None
         if self._resolver is not None and cwd_seen:
-            project = self._resolver.resolve(Path(cwd_seen).name or None, cwd_seen)
+            project_key = resolve_repo_slug(cwd_seen) or Path(cwd_seen).name or None
+            project = self._resolver.resolve(project_key, project_key)
 
         return SessionRecord(
             session_id=session_id,

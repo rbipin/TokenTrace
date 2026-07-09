@@ -44,7 +44,7 @@ def test_identity_rows_do_not_enter_sync_payloads(tmp_path):
     sqlite = SqliteStore(db)
     remote = _RecordingRemote()
 
-    from tracker import _run_sync
+    from src.commands.sync import _run_sync
 
     result = _run_sync(sqlite, [remote], dry_run=False)
 
@@ -63,3 +63,4 @@ def test_identity_rows_do_not_enter_sync_payloads(tmp_path):
 
     identity_store.close()
     sqlite.close()
+

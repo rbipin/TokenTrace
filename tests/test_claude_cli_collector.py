@@ -103,7 +103,7 @@ def test_project_inputs_from_cwd(tmp_path):
     stub = StubResolver()
     r = list(ClaudeCliCollector(tmp_path, resolver=stub).collect(date(2026, 7, 3)))[0]
     assert r.project == "RESOLVED"
-    assert stub.calls[0] == ("my-app", "/home/user/my-app")
+    assert stub.calls[0] == ("my-app", "my-app")
 
 
 def test_project_none_without_resolver(tmp_path):
@@ -145,3 +145,21 @@ def test_malformed_lines_skipped(tmp_path):
     records = list(ClaudeCliCollector(tmp_path).collect(date(2026, 7, 3)))
     assert len(records) == 1
     assert records[0].turns == 1
+
+
+def test_project_uses_repo_slug_when_cwd_is_git_repo(tmp_path):
+    repo_dir = tmp_path / "checkout"
+    git = repo_dir / ".git"
+    git.mkdir(parents=True)
+    (git / "config").write_text(
+        '[remote "origin"]\n\turl = https://github.com/rbipin/TokenTrace.git\n',
+        encoding="utf-8",
+    )
+    _write_session(tmp_path, "sess-git", [
+        _asst("2026-07-03T10:00:00.000Z", "claude-sonnet-4-6", 10, 5,
+              cwd=str(repo_dir)),
+    ])
+    stub = StubResolver()
+    r = list(ClaudeCliCollector(tmp_path, resolver=stub).collect(date(2026, 7, 3)))[0]
+    assert r.project == "RESOLVED"
+    assert stub.calls[0] == ("rbipin/TokenTrace", "rbipin/TokenTrace")
