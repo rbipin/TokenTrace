@@ -80,3 +80,18 @@ def test_concurrent_resolution_is_stable(tmp_path):
     assert len(set(guids)) == 1
     assert len(set(names)) == 1
     assert None not in guids and None not in names
+
+
+def test_list_identities_empty(store):
+    assert store.list_identities() == []
+
+
+def test_list_identities_returns_rows_sorted_by_cwd(store):
+    store.resolve_whimsical("/work/beta")
+    store.resolve_guid("/work/alpha")
+    rows = store.list_identities()
+    assert [r["cwd_key"] for r in rows] == ["/work/alpha", "/work/beta"]
+    assert rows[0]["whimsical_name"] is None
+    assert rows[1]["whimsical_name"]
+    assert all(len(r["guid"]) == 12 for r in rows)
+    assert all(r["created_at"] for r in rows)

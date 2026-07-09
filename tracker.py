@@ -167,6 +167,30 @@ def cmd_report(args) -> int:
     return 0
 
 
+def cmd_projects(args) -> int:
+    cfg = Config.load()
+    db_path = Path(args.db) if args.db else cfg.db_path
+    store = ProjectIdentityStore(db_path)
+    try:
+        rows = store.list_identities()
+    finally:
+        store.close()
+
+    if not rows:
+        print("No project identities recorded yet. Run: python tracker.py collect")
+        return 0
+
+    header = f"{'Cwd':<50} {'Guid':<14} {'Whimsical':<24} Created"
+    print(header)
+    print("-" * len(header))
+    for r in rows:
+        print(
+            f"{r['cwd_key']:<50} {r['guid']:<14} "
+            f"{r['whimsical_name'] or '-':<24} {r['created_at']}"
+        )
+    return 0
+
+
 def cmd_config_set(args) -> int:
     enum_keys = {"track_project_names": PROJECT_NAME_MODES}
     str_keys = {"context"}
@@ -231,6 +255,9 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     p_config_set.add_argument("key")
     p_config_set.add_argument("value")
 
+    # projects
+    sub.add_parser("projects", help="list local project identities (cwd -> guid -> whimsical)")
+
     # sync
     p_sync = sub.add_parser("sync", help="push unsynced records to remote stores")
     p_sync.add_argument("--dry-run", action="store_true",
@@ -249,6 +276,8 @@ def main() -> None:
         sys.exit(cmd_report(args))
     elif args.cmd == "sync":
         sys.exit(cmd_sync(args))
+    elif args.cmd == "projects":
+        sys.exit(cmd_projects(args))
     elif args.cmd == "config":
         if args.config_cmd == "set":
             sys.exit(cmd_config_set(args))

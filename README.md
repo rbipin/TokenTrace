@@ -241,6 +241,9 @@ python3 tracker.py report --summary --period all --by-project   # all history, b
 python3 tracker.py report --period month --model claude-sonnet-4-6
 python3 tracker.py report --summary --period all --by-project --json
 
+# List local project identities (cwd -> guid -> whimsical name; never synced)
+python3 tracker.py projects
+
 # Sync unsynced records to configured remote stores (e.g., Supabase)
 python3 tracker.py sync
 python3 tracker.py sync --dry-run   # show pending counts without pushing

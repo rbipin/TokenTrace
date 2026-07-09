@@ -99,6 +99,16 @@ class ProjectIdentityStore:
                     return row[0]
             return None
 
+    def list_identities(self) -> list[dict]:
+        """Return all identity mappings, sorted by cwd_key."""
+        with closing(self._connect()) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT cwd_key, guid, whimsical_name, created_at "
+                "FROM project_identities ORDER BY cwd_key"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def close(self) -> None:
         """Connections are per-call context managers; nothing to release."""
 

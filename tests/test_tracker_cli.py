@@ -95,3 +95,32 @@ def test_config_set_rejects_boolean_value(tmp_path, monkeypatch, capsys):
     args = parser.parse_args(["config", "set", "track_project_names", "true"])
     assert tracker.cmd_config_set(args) == 1
     assert "whimsical" in capsys.readouterr().err
+
+
+def test_parser_accepts_projects_command():
+    parser, _ = tracker._build_parser()
+    args = parser.parse_args(["projects"])
+    assert args.cmd == "projects"
+
+
+def test_cmd_projects_lists_identities(tmp_path, capsys):
+    from src.project_identity import ProjectIdentityStore
+
+    db = tmp_path / "usage.db"
+    store = ProjectIdentityStore(db)
+    name = store.resolve_whimsical("C:/Work/MyProj")
+    store.close()
+
+    parser, _ = tracker._build_parser()
+    args = parser.parse_args(["--db", str(db), "projects"])
+    assert tracker.cmd_projects(args) == 0
+    out = capsys.readouterr().out
+    assert "c:/work/myproj" in out
+    assert name in out
+
+
+def test_cmd_projects_empty_db(tmp_path, capsys):
+    parser, _ = tracker._build_parser()
+    args = parser.parse_args(["--db", str(tmp_path / "usage.db"), "projects"])
+    assert tracker.cmd_projects(args) == 0
+    assert "No project identities" in capsys.readouterr().out
