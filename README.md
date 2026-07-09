@@ -117,7 +117,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture: coll
 ```
 ai-token/
 ├─ pyproject.toml            # packaging — pip/pipx/uv entry point
-├─ tracker.py                # CLI entry (collect / report / config / sync)
+├─ tracker.py                # CLI entry (collect / report / config / sync / projects)
 ├─ src/
 │  ├─ models.py             # SessionRecord (frozen dataclass) + merge
 │  ├─ project_identity.py   # Tri-state project naming + local-only cwd→guid→whimsical identities

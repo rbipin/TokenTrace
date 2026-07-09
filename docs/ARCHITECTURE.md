@@ -54,7 +54,7 @@ flowchart LR
 
 | Module | Responsibility |
 | --- | --- |
-| `tracker.py` | CLI entry point: `collect` / `report` / `config` / `sync` |
+| `tracker.py` | CLI entry point: `collect` / `report` / `config` / `sync` / `projects` |
 | `src/models.py` | `SessionRecord` frozen dataclass; `merge_records` dedupe |
 | `src/collectors/` | Read-only source adapters (`ActivityCollector` protocol) |
 | `src/pipeline.py` | Fluent `TrackerPipeline`; parallel collection, fan-out to stores |
@@ -227,7 +227,8 @@ in a repo checkout; override with `--db`).
 - **`project_identities` table** — also lives in `usage.db`, keyed by a
   normalized (case-insensitive, trimmed) `cwd_key`, with stable `guid` and
   optional `whimsical_name` columns. It is local-only: `sync_log`,
-  `unsynced_for()`, and remote-store upserts never reference it.
+  `unsynced_for()`, and remote-store upserts never reference it. Inspect it
+  with `python3 tracker.py projects`.
 - **`sync_log` table** — `PRIMARY KEY (session_id, source, model,
   store_name)`; tracks which rows have been pushed to which remote store,
   so `sync` is incremental and idempotent per store.

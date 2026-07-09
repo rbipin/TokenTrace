@@ -60,7 +60,7 @@ No build step — standard library only at runtime. Install `pytest` for testing
 The tracker follows an **Open/Closed pipeline**: adding a new data source only requires implementing the `ActivityCollector` protocol and registering it in `tracker.py`. No other module needs to change.
 
 ```
-tracker.py               CLI entry point (collect / report / config / sync subcommands)
+tracker.py               CLI entry point (collect / report / config / sync / projects subcommands)
 src/
   models.py              SessionRecord frozen dataclass; merge_records deduplicates by (session_id, source, model)
   project_identity.py    ProjectIdentityStore (local-only cwd→guid→whimsical table) + ProjectNameResolver (tri-state naming policy)
