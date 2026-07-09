@@ -8,23 +8,34 @@ from pathlib import Path
 from src.collectors import CopilotCliCollector, ClaudeCliCollector
 from src.config import Config, write_toml_setting
 from src.pipeline import TrackerPipeline
+from src.project_identity import (
+    PROJECT_NAME_MODES,
+    ProjectIdentityStore,
+    ProjectNameResolver,
+)
 from src.report import UsageReporter
-from src.stores.sqlite import SqliteStore
 from src.stores.registry import instantiate_store
+from src.stores.sqlite import SqliteStore
 
 
-def _parse_bool_arg(val: str) -> bool:
-    return val.lower() in ("1", "true", "yes")
+def _build_pipeline(cfg: Config) -> tuple[TrackerPipeline, ProjectIdentityStore | None]:
+    """Build the collection pipeline plus the identity store it borrows (if any).
 
-
-def _build_pipeline(cfg: Config, track_project_names: bool) -> TrackerPipeline:
+    The caller owns the returned store and must close it after the run.
+    """
     paths = cfg.paths
-    return (
+    mode = cfg.track_project_names
+    identity_store = (
+        ProjectIdentityStore(cfg.db_path) if mode in ("no", "whimsical") else None
+    )
+    resolver = ProjectNameResolver(mode, identity_store)
+    pipeline = (
         TrackerPipeline()
         .context(cfg.context)
-        .add(CopilotCliCollector(paths.copilot_home, track_project_names=track_project_names))
-        .add(ClaudeCliCollector(paths.claude_projects, track_project_names=track_project_names))
+        .add(CopilotCliCollector(paths.copilot_home, resolver=resolver))
+        .add(ClaudeCliCollector(paths.claude_projects, resolver=resolver))
     )
+    return pipeline, identity_store
 
 
 def _load_remote_stores(cfg: Config) -> list:
@@ -43,15 +54,10 @@ def _build_stores(cfg: Config) -> list:
 
 
 def cmd_collect(args) -> int:
-    # Resolve track_project_names: CLI flag > toml > default
-    if args.track_projects is True:
-        track = True
-    elif args.track_projects is False:
-        track = False
-    else:
-        track = None  # not specified — use toml/default
-
-    cfg = Config.load(**({"track_project_names": track} if track is not None else {}))
+    overrides = {}
+    if args.project_mode is not None:
+        overrides["track_project_names"] = args.project_mode
+    cfg = Config.load(**overrides)
     cfg = Config(
         paths=cfg.paths,
         db_path=Path(args.db) if args.db else cfg.db_path,
@@ -62,9 +68,13 @@ def cmd_collect(args) -> int:
     )
 
     since = date.today() - timedelta(days=cfg.lookback_days)
-    pipeline = _build_pipeline(cfg, cfg.track_project_names)
+    pipeline, identity_store = _build_pipeline(cfg)
     stores = _build_stores(cfg)
-    result = pipeline.since(since).stores(*stores).run()
+    try:
+        result = pipeline.since(since).stores(*stores).run()
+    finally:
+        if identity_store is not None:
+            identity_store.close()
 
     for err in result.errors:
         print(f"Warning: {err}", file=sys.stderr)
@@ -157,18 +167,49 @@ def cmd_report(args) -> int:
     return 0
 
 
+def cmd_projects(args) -> int:
+    cfg = Config.load()
+    db_path = Path(args.db) if args.db else cfg.db_path
+    store = ProjectIdentityStore(db_path)
+    try:
+        rows = store.list_identities()
+    finally:
+        store.close()
+
+    if not rows:
+        print("No project identities recorded yet. Run: python tracker.py collect")
+        return 0
+
+    header = f"{'Cwd':<50} {'Guid':<14} {'Whimsical':<24} Created"
+    print(header)
+    print("-" * len(header))
+    for r in rows:
+        print(
+            f"{r['cwd_key']:<50} {r['guid']:<14} "
+            f"{r['whimsical_name'] or '-':<24} {r['created_at']}"
+        )
+    return 0
+
+
 def cmd_config_set(args) -> int:
-    bool_keys = {"track_project_names"}
+    enum_keys = {"track_project_names": PROJECT_NAME_MODES}
     str_keys = {"context"}
-    if args.key in bool_keys:
-        value: bool | str = _parse_bool_arg(args.value)
+    if args.key in enum_keys:
+        value = args.value.strip().lower()
+        if value not in enum_keys[args.key]:
+            print(
+                f"Config value for {args.key!r} must be one of: "
+                f"{', '.join(enum_keys[args.key])}",
+                file=sys.stderr,
+            )
+            return 1
     elif args.key in str_keys:
         value = args.value.strip()
         if not value:
             print("Config value for 'context' must be a non-empty string", file=sys.stderr)
             return 1
     else:
-        supported = sorted(bool_keys | str_keys)
+        supported = sorted(set(enum_keys) | str_keys)
         print(
             f"Unknown config key: {args.key!r}. Supported: {', '.join(supported)}",
             file=sys.stderr,
@@ -188,14 +229,10 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     p_collect = sub.add_parser("collect", help="collect usage from local logs")
     p_collect.add_argument("--lookback", type=int, default=3,
                            help="days of history to collect (default: 3)")
-    p_collect.set_defaults(track_projects=None)
-    track_group = p_collect.add_mutually_exclusive_group()
-    track_group.add_argument("--track-projects", dest="track_projects",
-                             action="store_const", const=True,
-                             help="store project names (override toml)")
-    track_group.add_argument("--no-track-projects", dest="track_projects",
-                             action="store_const", const=False,
-                             help="suppress project names (override toml)")
+    p_collect.add_argument("--project-mode", dest="project_mode",
+                           choices=list(PROJECT_NAME_MODES), default=None,
+                           help="project naming: yes=real name, no=guid, "
+                                "whimsical=masked name (override toml)")
     p_collect.add_argument("--context", default=None,
                            help='usage context label, e.g. "work" or "personal" (override toml)')
 
@@ -218,6 +255,9 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     p_config_set.add_argument("key")
     p_config_set.add_argument("value")
 
+    # projects
+    sub.add_parser("projects", help="list local project identities (cwd -> guid -> whimsical)")
+
     # sync
     p_sync = sub.add_parser("sync", help="push unsynced records to remote stores")
     p_sync.add_argument("--dry-run", action="store_true",
@@ -236,6 +276,8 @@ def main() -> None:
         sys.exit(cmd_report(args))
     elif args.cmd == "sync":
         sys.exit(cmd_sync(args))
+    elif args.cmd == "projects":
+        sys.exit(cmd_projects(args))
     elif args.cmd == "config":
         if args.config_cmd == "set":
             sys.exit(cmd_config_set(args))

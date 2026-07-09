@@ -1,0 +1,143 @@
+// Jagadish Chandra Bose - Indian polymath physicist, biologist, and botanist who did pioneering research on radio and microwave optics. https://en.wikipedia.org/wiki/Jagadish_Chandra_Bose
+"bose_jc",
+
+// Vikram Sarabhai - Indian space scientist and astronomer, founder of the Indian Space Research Organisation (ISRO). https://en.wikipedia.org/wiki/Vikram_Sarabhai
+"sarabhai",
+
+// Prafulla Chandra Ray - Indian chemist and industrialist, founder of Bengal Chemicals and Pharmaceuticals. https://en.wikipedia.org/wiki/Prafulla_Chandra_Ray
+"ray_pc",
+
+// Anna Mani - Indian meteorologist and physicist who made major contributions to atmospheric science and solar radiation measurement. https://en.wikipedia.org/wiki/Anna_Mani
+"mani",
+
+// Kamal Ranadive - Indian microbiologist who made important discoveries about leukemia and cancer research. https://en.wikipedia.org/wiki/Kamal_Ranadive
+"ranadive",
+
+// S. Ramanujan - Wait, he's already included ✓
+"ramanujan",
+
+// Yash Pal - Indian space scientist and astrophysicist who contributed to the development of Indian satellite technology. https://en.wikipedia.org/wiki/Yash_Pal
+"yash_pal",
+
+// Mokshagundam Visvesvaraya - Wait, he's already included ✓
+"visvesvaraya",
+
+// Homi Jehangir Bhabha - Wait, he's already included ✓
+"bhabha",
+
+// Demis Hassabis - British AI researcher and co-founder of DeepMind; 2024 Nobel Prize in Chemistry for AlphaFold protein structure prediction. https://en.wikipedia.org/wiki/Demis_Hassabis
+"hassabis",
+
+// John Jumper - American AI researcher at Meta; 2024 Nobel Prize in Chemistry for developing AlphaFold2. https://en.wikipedia.org/wiki/John_Jumper
+"jumper",
+
+// Luc Montagnier - French virologist; co-discoverer of HIV, 2008 Nobel Prize in Physiology or Medicine. https://en.wikipedia.org/wiki/Luc_Montagnier
+"montagnier",
+
+// Jennifer Doudna - American biochemist; 2020 Nobel Prize in Chemistry for CRISPR gene editing. https://en.wikipedia.org/wiki/Jennifer_Doudna
+"doudna",
+
+// Emmanuelle Charpentier - French microbiologist; 2020 Nobel Prize in Chemistry for CRISPR gene editing. https://en.wikipedia.org/wiki/Emmanuelle_Charpentier
+"charpentier",
+
+// Roger Penrose - British physicist; 2020 Nobel Prize in Physics for black hole discoveries. https://en.wikipedia.org/wiki/Roger_Penrose
+"penrose",
+
+// Barry Marshall - Australian physician; 2005 Nobel Prize in Physiology or Medicine for Helicobacter pylori discovery. https://en.wikipedia.org/wiki/Barry_Marshall
+"marshall",
+
+// Robin Warren - Australian pathologist; 2005 Nobel Prize in Physiology or Medicine for H. pylori discovery. https://en.wikipedia.org/wiki/Robin_Warren
+"warren",
+
+// Shinya Yamanaka - Japanese physician; 2012 Nobel Prize in Physiology or Medicine for induced pluripotent stem cells. https://en.wikipedia.org/wiki/Shinya_Yamanaka
+"yamanaka",
+
+// Venkatraman Ramakrishnan - Indian-British structural biologist; 2009 Nobel Prize in Chemistry for ribosome studies. https://en.wikipedia.org/wiki/Venkatraman_Ramakrishnan
+"ramakrishnan",
+
+// Peter Higgs - British physicist; 2013 Nobel Prize in Physics for Higgs boson prediction. https://en.wikipedia.org/wiki/Peter_Higgs
+"higgs",
+
+// François Englert - Belgian theoretical physicist; 2013 Nobel Prize in Physics for Higgs mechanism theory. https://en.wikipedia.org/wiki/Fran%C3%A7ois_Englert
+"englert",
+
+// Donna Strickland - Canadian optical physicist; 2018 Nobel Prize in Physics for laser pulse amplification. https://en.wikipedia.org/wiki/Donna_Strickland
+"strickland",
+
+// Arthur Ashkin - American physicist; 2018 Nobel Prize in Physics for optical tweezers. https://en.wikipedia.org/wiki/Arthur_Ashkin
+"ashkin",
+
+// Kip Thorne - American physicist; 2017 Nobel Prize in Physics for gravitational wave detection. https://en.wikipedia.org/wiki/Kip_Thorne
+"thorne",
+
+// Andrea Ghez - American astronomer; 2020 Nobel Prize in Physics for black hole at Milky Way center. https://en.wikipedia.org/wiki/Andrea_Ghez
+"ghez",
+
+// Katalin Karikó - Hungarian-American biochemist; 2023 Nobel Prize in Physiology or Medicine for mRNA vaccine development. https://en.wikipedia.org/wiki/Katalin_Karik%C3%B3
+"kariko",
+
+// Drew Weissman - American immunologist; 2023 Nobel Prize in Physiology or Medicine for mRNA vaccine development. https://en.wikipedia.org/wiki/Drew_Weissman
+"weissman",
+
+// John Bardeen - Wait, he's already included ✓
+"bardeen",
+
+// Georg Cantor - German mathematician; founder of set theory and the theory of infinite numbers. https://en.wikipedia.org/wiki/Georg_Cantor
+"cantor",
+
+// David Hilbert - German mathematician; formulated the influential Hilbert's 23 problems. https://en.wikipedia.org/wiki/David_Hilbert
+"hilbert",
+
+// Bertrand Russell - British philosopher and mathematician; pioneer in mathematical logic. https://en.wikipedia.org/wiki/Bertrand_Russell
+"russell",
+
+// Kurt Gödel - Austrian mathematician and logician; famous for incompleteness theorems. https://en.wikipedia.org/wiki/Kurt_G%C3%B6del
+"godel",
+
+// Alonzo Church - American mathematician and logician; pioneer of computability theory and lambda calculus. https://en.wikipedia.org/wiki/Alonzo_Church
+"church",
+
+// Andrey Kolmogorov - Russian mathematician; founder of modern probability theory. https://en.wikipedia.org/wiki/Andrey_Kolmogorov
+"kolmogorov",
+
+// Geoffrey Hinton - British-Canadian cognitive psychologist; pioneer of deep learning, 2018 Turing Award. https://en.wikipedia.org/wiki/Geoffrey_Hinton
+"hinton",
+
+// Yann LeCun - French computer scientist; pioneer of convolutional neural networks, 2018 Turing Award. https://en.wikipedia.org/wiki/Yann_LeCun
+"lecun",
+
+// Yoshua Bengio - Canadian computer scientist; pioneer of deep learning, 2018 Turing Award. https://en.wikipedia.org/wiki/Yoshua_Bengio
+"bengio",
+
+// Herbert Simon - American polymath; 1978 Nobel Prize in Economics for bounded rationality and AI. https://en.wikipedia.org/wiki/Herbert_Simon
+"simon",
+
+// Marvin Minsky - American cognitive scientist; pioneer of artificial intelligence research. https://en.wikipedia.org/wiki/Marvin_Minsky
+"minsky",
+
+// Judea Pearl - American computer scientist; pioneer of Bayesian networks and causal reasoning in AI. https://en.wikipedia.org/wiki/Judea_Pearl
+"pearl",
+
+// Richard Feynman - Wait, he's already included ✓
+"feynman",
+
+// Linus Torvalds - Wait, he's already included ✓
+"torvalds",
+
+// Fred Hoyle - British astronomer and cosmologist; major contributions to stellar nucleosynthesis. https://en.wikipedia.org/wiki/Fred_Hoyle
+"hoyle",
+
+// Carl Woese - American microbiologist; discovered archaea, revolutionized understanding of life. https://en.wikipedia.org/wiki/Carl_Woese
+"woese",
+
+// Jocelyn Bell Burnell - Wait, she's already included ✓
+"burnell",
+
+// Sydney Brenner - South African biologist; 2002 Nobel Prize in Physiology or Medicine for developmental biology. https://en.wikipedia.org/wiki/Sydney_Brenner
+"brenner",
+
+// May-Britt Moser - Wait, she's already included ✓
+"moser",
+
+// Edvard Moser - Norwegian neuroscientist; 2014 Nobel Prize in Physiology or Medicine for grid cells discovery. https://en.wikipedia.org/wiki/Edvard_Moser
+"edvard_moser",

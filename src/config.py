@@ -7,6 +7,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .project_identity import PROJECT_NAME_MODES
+
 try:
     import tomllib  # Python 3.11+
 except ImportError:
@@ -103,7 +105,7 @@ class Config:
         default_factory=lambda: Path.home() / ".tokentracer" / "usage.db"
     )
     lookback_days: int = 3
-    track_project_names: bool = False
+    track_project_names: str = "no"
     context: str = "personal"
     remote_stores: tuple[StoreConfig, ...] = field(default_factory=tuple)
 
@@ -117,7 +119,16 @@ class Config:
                     data = tomllib.load(fh)
                 tracking = data.get("tracking", {})
                 if "track_project_names" in tracking:
-                    base["track_project_names"] = bool(tracking["track_project_names"])
+                    raw_mode = tracking["track_project_names"]
+                    if isinstance(raw_mode, str) and raw_mode in PROJECT_NAME_MODES:
+                        base["track_project_names"] = raw_mode
+                    else:
+                        print(
+                            f"Warning: invalid track_project_names {raw_mode!r} "
+                            f"in ~/.tokentracer.toml; expected one of "
+                            f"{', '.join(PROJECT_NAME_MODES)} — using 'no'",
+                            file=sys.stderr,
+                        )
                 if "context" in tracking:
                     base["context"] = str(tracking["context"])
                 stores_raw = data.get("stores", {})
@@ -136,6 +147,13 @@ class Config:
             except Exception as exc:
                 print(f"Warning: could not parse ~/.tokentracer.toml: {exc}", file=sys.stderr)
         base.update(overrides)
+        if "track_project_names" in base:
+            raw_mode = base["track_project_names"]
+            if not (isinstance(raw_mode, str) and raw_mode in PROJECT_NAME_MODES):
+                raise ValueError(
+                    f"invalid track_project_names override {raw_mode!r}; "
+                    f"expected one of {', '.join(PROJECT_NAME_MODES)}"
+                )
         return cls(**base)
 
 

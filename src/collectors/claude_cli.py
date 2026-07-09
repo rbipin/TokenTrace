@@ -14,9 +14,14 @@ class ClaudeCliCollector:
 
     source = "claude_cli"
 
-    def __init__(self, projects_dir: Path, track_project_names: bool = False) -> None:
+    def __init__(self, projects_dir: Path, resolver=None) -> None:
+        """Args:
+            projects_dir: Root of ~/.claude/projects.
+            resolver: Optional ProjectNameResolver; when None, records carry
+                no project identity.
+        """
         self._dir = projects_dir
-        self._track_projects = track_project_names
+        self._resolver = resolver
 
     def collect(self, since: date) -> Iterator[SessionRecord]:
         for jsonl_path in self._dir.rglob("*.jsonl"):
@@ -41,7 +46,7 @@ class ClaudeCliCollector:
             "cache_read_tokens": 0,
         }
         model = UNKNOWN_MODEL
-        project: str | None = None
+        cwd_seen: str | None = None
         start_ts: str | None = None
         end_ts: str | None = None
         turns = 0
@@ -67,10 +72,10 @@ class ClaudeCliCollector:
                 if end_ts is None or ts > end_ts:
                     end_ts = ts
 
-            if project is None and self._track_projects:
+            if cwd_seen is None and self._resolver is not None:
                 cwd = entry.get("cwd")
                 if cwd:
-                    project = Path(cwd).name
+                    cwd_seen = cwd
 
             if entry.get("type") != "assistant":
                 continue
@@ -93,6 +98,10 @@ class ClaudeCliCollector:
             date_str = session_date.isoformat()
         else:
             date_str = date.today().isoformat()
+
+        project: str | None = None
+        if self._resolver is not None and cwd_seen:
+            project = self._resolver.resolve(Path(cwd_seen).name or None, cwd_seen)
 
         return SessionRecord(
             session_id=session_id,

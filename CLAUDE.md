@@ -26,7 +26,7 @@ python3 tracker.py report --summary --period month
 python3 tracker.py report --summary --period year
 python3 tracker.py report --summary --period all     # entire database, no date filter
 
-# --by-project: group by project (requires --track-projects data in db)
+# --by-project: group by stored project identity (real name, guid, or whimsical mask)
 python3 tracker.py report --summary --period all --by-project
 
 # --period scopes all views: all | day | month | year  (default: day)
@@ -38,8 +38,11 @@ python3 tracker.py report --model claude-sonnet-4-6
 python3 tracker.py report --summary --period month --json
 
 # Configuration
-python3 tracker.py config set track_project_names true
+python3 tracker.py config set track_project_names whimsical   # yes | no | whimsical
 python3 tracker.py config set context work   # label this machine's usage ("work"/"personal")
+
+# List local project identities (cwd -> guid -> whimsical name; never synced)
+python3 tracker.py projects
 
 # Sync unsynced records to configured remote stores (e.g., Supabase)
 python3 tracker.py sync
@@ -57,13 +60,15 @@ No build step — standard library only at runtime. Install `pytest` for testing
 The tracker follows an **Open/Closed pipeline**: adding a new data source only requires implementing the `ActivityCollector` protocol and registering it in `tracker.py`. No other module needs to change.
 
 ```
-tracker.py               CLI entry point (collect / report / config / sync subcommands)
+tracker.py               CLI entry point (collect / report / config / sync / projects subcommands)
 src/
   models.py              SessionRecord frozen dataclass; merge_records deduplicates by (session_id, source, model)
+  project_identity.py    ProjectIdentityStore (local-only cwd→guid→whimsical table) + ProjectNameResolver (tri-state naming policy)
   collectors/
     base.py              ActivityCollector protocol + to_date / to_local_iso helpers
     copilot_cli.py       Reads session-store.db + events.jsonl from ~/.copilot/; yields per-(session, model) records
     claude_cli.py        Reads ~/.claude/projects/**/*.jsonl; yields one record per JSONL (session)
+  whimsy/                Standalone docker-style name generator (stdlib-only, extractable to its own repo; only public API is generate_name)
   stores/
     __init__.py          SessionStore Protocol (name attr + upsert + close)
     registry.py          load_store_registry() (entry-point discovery + built-in fallback), instantiate_store()
@@ -82,9 +87,9 @@ src/
 - Upsert is **last-write-wins** (INSERT OR REPLACE). There is no summation across runs.
 - Collectors are **read-only** with respect to their source files — they must never write to them.
 
-**UsageStore schema**: `sessions` table with PRIMARY KEY `(session_id, source, model)`. On first connect, if an old `usage` / `daily_activity` table exists it is dropped with a warning and the user is asked to re-collect.
+**UsageStore schema**: `sessions` table with PRIMARY KEY `(session_id, source, model)`. On first connect, if an old `usage` / `daily_activity` table exists it is dropped with a warning and the user is asked to re-collect. A separate local-only `project_identities` table stores normalized cwd → guid → whimsical-name mappings and is never queried by sync code.
 
-**Config file**: `~/.tokentracer.toml`. `[tracking]` supports `track_project_names` (bool, default false); CLI flag `--track-projects` / `--no-track-projects` overrides the TOML value per run. `[tracking]` also supports `context` (string, default `"personal"`) — a usage-context label (e.g. `"work"`) stamped on every collected `SessionRecord` via `TrackerPipeline.context()` and stored in the `context` column of the `sessions` table (and pushed to remote stores); CLI flag `--context <label>` on `collect` overrides it per run. `[stores.<name>]` sections declare remote stores (see below); `${VAR}` placeholders in string values are expanded at instantiation time — lookup order is `os.environ` first, then `~/.tokentracer.env` (simple `KEY=VALUE` file, `#` comments, optional quotes). Missing vars raise `ValueError`.
+**Config file**: `~/.tokentracer.toml`. `[tracking]` supports `track_project_names` as a string enum: `"yes"` (real name), `"no"` (stable 12-hex guid per cwd; default), or `"whimsical"` (stable docker-style masked name). `tracker.py config set track_project_names <value>` validates against that enum; invalid or legacy boolean TOML values warn and fall back to `"no"`. The `collect` CLI overrides it per run with `--project-mode <yes|no|whimsical>`. `[tracking]` also supports `context` (string, default `"personal"`) — a usage-context label (e.g. `"work"`) stamped on every collected `SessionRecord` via `TrackerPipeline.context()` and stored in the `context` column of the `sessions` table (and pushed to remote stores); CLI flag `--context <label>` on `collect` overrides it per run. `[stores.<name>]` sections declare remote stores (see below); `${VAR}` placeholders in string values are expanded at instantiation time — lookup order is `os.environ` first, then `~/.tokentracer.env` (simple `KEY=VALUE` file, `#` comments, optional quotes). Missing vars raise `ValueError`.
 
 ## Stores registry (remote sinks)
 
