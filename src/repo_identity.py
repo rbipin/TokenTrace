@@ -36,8 +36,9 @@ def _resolve_cached(cwd: str) -> str | None:
         if not url:
             return None
         return _slug_from_url(url)
-    except (OSError, ValueError):
-        # Path operations can raise ValueError on malformed input.
+    except Exception:
+        # Public contract is best-effort, never-raise. Any unexpected failure
+        # (e.g., RuntimeError from Path.resolve() on symlink loops) resolves to None.
         return None
 
 
