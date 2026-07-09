@@ -51,6 +51,8 @@ class ClaudeCliCollector:
         start_ts: str | None = None
         end_ts: str | None = None
         turns = 0
+        tool_calls = 0
+        context_peak = 0
 
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
@@ -90,6 +92,21 @@ class ClaudeCliCollector:
             totals["output_tokens"] += usage.get("output_tokens", 0)
             totals["cache_creation_tokens"] += usage.get("cache_creation_input_tokens", 0)
             totals["cache_read_tokens"] += usage.get("cache_read_input_tokens", 0)
+            
+            footprint = (
+                usage.get("input_tokens", 0)
+                + usage.get("cache_read_input_tokens", 0)
+                + usage.get("cache_creation_input_tokens", 0)
+                + usage.get("output_tokens", 0)
+            )
+            if footprint > context_peak:
+                context_peak = footprint
+            content = msg.get("content") or []
+            if isinstance(content, list):
+                tool_calls += sum(
+                    1 for block in content
+                    if isinstance(block, dict) and block.get("type") == "tool_use"
+                )
 
         # Apply since filter on sessions that have a known start date
         if start_ts is not None:
@@ -114,5 +131,7 @@ class ClaudeCliCollector:
             end_ts=to_local_iso(end_ts) if end_ts else None,
             project=project,
             turns=turns,
+            tool_calls=tool_calls,
+            context_peak_tokens=context_peak,
             **totals,
         )
