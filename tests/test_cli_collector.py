@@ -318,3 +318,17 @@ def test_context_peak_in_fallback_path(tmp_path):
     ])
     r = list(CopilotCliCollector(home).collect(date(2026, 6, 10)))[0]
     assert r.context_peak_tokens == 730
+
+
+def test_tool_event_after_shutdown_still_counted(tmp_path):
+    """Regression guard: the scan must not short-circuit on session.shutdown."""
+    home = _make_home(tmp_path)
+    _add_session(home, "s1", "/work/x", "owner/x",
+                 "2026-06-10T12:00:00.000Z", "2026-06-10T13:00:00.000Z")
+    _write_events(home, "s1", [
+        _tool_event("model-a"),
+        _shutdown({"model-a": {"turns": 1, "input": 10, "output": 1}}),
+        _tool_event("model-a"),  # after shutdown — must still be counted
+    ])
+    r = list(CopilotCliCollector(home).collect(date(2026, 6, 10)))[0]
+    assert r.tool_calls == 2
