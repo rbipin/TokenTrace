@@ -77,6 +77,14 @@ New boolean flag on the `report` command implemented as a new `ReportStrategy` (
 - **`--detailed`:** returns every row regardless of date; includes all columns; Synced column reflects `sync_log` entries; works with `--json` and `--model`.
 - **Supabase:** upsert payload includes `tool_calls`, `reasoning_tokens`, `context_peak_tokens` (assert on mocked client).
 
+## Documentation updates
+
+As part of implementation, update:
+
+- **README.md** — document `report --detailed` (all rows, all columns, sync status); note that Supabase `token_sessions` tables need `tool_calls`, `reasoning_tokens`, and `context_peak_tokens` columns; mention tool-call tracking in the feature list.
+- **CLAUDE.md** — add `report --detailed` to the command examples; update the collector data-details paragraphs (Copilot: `tool.execution_complete` counting, shutdown no longer short-circuits the scan; Claude: `tool_use` block counting, no reasoning data); note the Supabase payload now includes the three extra columns.
+- **docs/ARCHITECTURE.md** — same collector/report/store behavior updates where those components are described.
+
 ## Backfill
 
 None needed. Re-running `tracker.py collect --lookback N` overwrites rows for sessions whose source files still exist.
