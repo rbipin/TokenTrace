@@ -112,7 +112,7 @@ Stores implement the `SessionStore` Protocol in `src/stores/__init__.py` (`name:
 - **Instantiation**: `instantiate_store(name, params, class_path=None)` expands `${VAR}` env placeholders in `params`, then constructs the store — via `class_path` (dotted import path, bypasses the registry) if given, else by registry name.
 - **Sync flow**: `tracker.py sync` reads `[stores.*]` from `~/.tokentracer.toml`, and for each remote store pushes rows the SqliteStore reports as unsynced (`unsynced_for(store_name)`), then marks them synced per store. `--dry-run` prints pending counts only. Failed stores are reported without blocking others; stores are always closed in a `finally`.
 
-**Built-in remote store — Supabase** (`src/stores/supabase.py`): upserts rows into a `token_sessions` table with `on_conflict="session_id,source,model"` (mirrors the local primary key). Lazy client creation on first upsert; requires optional dep `supabase>=2.0` (`pip install tokentracer[supabase]`). The upserted payload includes `tool_calls`, `reasoning_tokens`, and `context_peak_tokens`; the remote `token_sessions` table must have those integer columns. Configure with:
+**Built-in remote store — Supabase** (`src/stores/supabase.py`): upserts rows into a `token_sessions` table with `on_conflict="session_id,source,model"` (mirrors the local primary key). Lazy client creation on first upsert; requires optional dep `supabase>=2.0` (`pip install tokentracer[supabase]`). The upserted payload includes `tool_calls`, `reasoning_tokens`, and `context_peak_tokens`; the remote `token_sessions` table must have those bigint columns. Configure with:
 
 ```toml
 [stores.supabase]

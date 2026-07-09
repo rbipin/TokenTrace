@@ -48,7 +48,15 @@ This project is my answer to that gap: a lightweight local collector that pulls 
 ## Outcome
 
 <!-- outcome -->
-This usage analytics tool provides exact token counts per session, model, and tool, along with cache efficiency metrics and estimated cost savings. It tracks tool-call counts per session and context peak token usage per session. It offers trend analysis across daily, monthly, and yearly views, optional project-level usage breakdowns, and context labels such as work or personal. Data collection is idempotent for safe scheduled runs, supports remote synchronization to pluggable backends like Supabase, and generates heatmap-ready datasets for future visualization and usage-intensity analysis.
+This usage analytics tool provides exact token counts per session, model, and tool, along with cache efficiency metrics and estimated cost savings. Key features include:
+
+- Tracks tool calls per session (Copilot tool events / Claude tool_use blocks)
+- Tracks context peak — the largest single-request token footprint per session
+- Trend analysis across daily, monthly, and yearly views
+- Optional project-level usage breakdowns and context labels (work / personal)
+- Idempotent data collection for safe scheduled runs
+- Remote synchronization to pluggable backends like Supabase
+- Heatmap-ready datasets for future visualization and usage-intensity analysis
 <!-- /outcome -->
 
 ---
@@ -369,7 +377,7 @@ create table token_sessions (
   end_ts timestamptz,
   project text,
   turns integer default 0,
-  tool_calls integer default 0,
+  tool_calls bigint default 0,
   input_tokens bigint default 0,
   output_tokens bigint default 0,
   cache_creation_tokens bigint default 0,
