@@ -36,7 +36,8 @@ def _resolve_cached(cwd: str) -> str | None:
         if not url:
             return None
         return _slug_from_url(url)
-    except OSError:
+    except (OSError, ValueError):
+        # Path operations can raise ValueError on malformed input.
         return None
 
 

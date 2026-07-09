@@ -80,6 +80,13 @@ def test_malformed_config_returns_none(tmp_path):
     assert resolve_repo_slug(str(tmp_path)) is None
 
 
+def test_malformed_gitdir_pointer_returns_none(tmp_path):
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    (worktree / ".git").write_text("gitdir: \x00bad\n", encoding="utf-8")
+    assert resolve_repo_slug(str(worktree)) is None
+
+
 def test_slug_from_url_edge_cases():
     assert _slug_from_url("https://github.com/a/b.git") == "a/b"
     assert _slug_from_url("git@github.com:a/b") == "a/b"
