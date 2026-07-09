@@ -275,11 +275,15 @@ class FullDumpView:
                 reasoning_tokens,
                 context,
                 COALESCE((
-                    SELECT GROUP_CONCAT(l.store_name, ',')
-                    FROM sync_log l
-                    WHERE l.session_id = sessions.session_id
-                      AND l.source = sessions.source
-                      AND l.model = sessions.model
+                    SELECT GROUP_CONCAT(store_name, ',')
+                    FROM (
+                        SELECT l.store_name
+                        FROM sync_log l
+                        WHERE l.session_id = sessions.session_id
+                          AND l.source = sessions.source
+                          AND l.model = sessions.model
+                        ORDER BY l.store_name
+                    )
                 ), '')                  AS synced
             FROM sessions
             WHERE 1=1{ctx.model_filter}

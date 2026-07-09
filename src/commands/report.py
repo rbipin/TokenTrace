@@ -24,7 +24,7 @@ class ReportCommand:
                                  "per-session rows")
         parser.add_argument("--detailed", action="store_true",
                             help="dump every row in the db with all columns "
-                                 "and sync status (ignores --period)")
+                                 "and sync status (overrides --summary/--by-project, ignores --period)")
         parser.add_argument("--json", action="store_true",
                             help="output as JSON")
 

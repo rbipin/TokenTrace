@@ -251,3 +251,14 @@ def test_detailed_flag_json_and_model_filter(tmp_db):
     assert rows[0]["session_id"] == "s1"
     assert rows[0]["tool_calls"] == 2
     assert rows[0]["synced"] == ""
+
+
+def test_detailed_takes_precedence_and_ignores_period(tmp_db):
+    store = UsageStore(tmp_db)
+    store.upsert([_rec("s-prec", date_str="2020-01-01", tool_calls=4)])
+    # detailed wins over summary/by_project and ignores the period filter
+    out = UsageReporter(tmp_db).report(
+        period="day", summary=True, by_project=True, detailed=True
+    )
+    assert "s-prec" in out      # 2020 row shown despite period="day"
+    assert "Synced" in out      # full-dump headers, not summary/by-project
