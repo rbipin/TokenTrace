@@ -1,4 +1,4 @@
-# TokenTracer Architecture
+<h1 align="center">Token Tracer Architecture</h1>
 
 This document describes how TokenTracer works end to end: how token usage is
 collected, where the data comes from, how it is stored, transformed, reported,
