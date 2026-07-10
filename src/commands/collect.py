@@ -9,6 +9,7 @@ from pathlib import Path
 from src.collectors import ClaudeCliCollector, CopilotCliCollector
 from src.commands.common import load_remote_stores
 from src.config import Config
+from src.middleware import ModelNormalizeMiddleware
 from src.pipeline import TrackerPipeline
 from src.project_identity import (
     PROJECT_NAME_MODES,
@@ -34,6 +35,7 @@ def _build_pipeline(cfg: Config) -> tuple[TrackerPipeline, ProjectIdentityStore 
         .context(cfg.context)
         .add(CopilotCliCollector(paths.copilot_home, resolver=resolver))
         .add(ClaudeCliCollector(paths.claude_projects, resolver=resolver))
+        .middlewares(ModelNormalizeMiddleware())
     )
     return pipeline, identity_store
 
