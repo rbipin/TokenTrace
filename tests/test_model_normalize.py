@@ -18,6 +18,14 @@ def test_looks_up_cross_vendor_name():
     assert normalize_model("claude-sonnet-4.5", "copilot_cli") == "claude-sonnet-4-5"
 
 
+def test_looks_up_cross_vendor_name_for_opus():
+    assert normalize_model("claude-opus-4.8", "copilot_cli") == "claude-opus-4-8"
+
+
+def test_looks_up_cross_vendor_name_for_haiku():
+    assert normalize_model("claude-haiku-4.5", "copilot_cli") == "claude-haiku-4-5"
+
+
 def test_passes_through_unrecognized_name():
     assert normalize_model("gpt-4o", "copilot_cli") == "gpt-4o"
 
