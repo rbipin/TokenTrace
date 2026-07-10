@@ -56,7 +56,7 @@ class SyncCommand:
 
         if not cfg.remote_stores:
             print("No remote stores configured. Add [stores.X] sections to "
-                  "~/.tokentracer.toml")
+                  "~/.tokentracer/.tokentracer.toml")
             return 0
 
         sqlite_store = SqliteStore(db_path)

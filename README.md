@@ -91,7 +91,7 @@ This usage analytics tool provides exact token counts per session, model, and to
 | Language | Python 3.11+ — standard library only at runtime (`tomllib` for config) |
 | Storage | SQLite — `~/.tokentracer/usage.db`, idempotent upserts, per-store sync tracking |
 | Remote stores | Pluggable `SessionStore` protocol via the `tokentracer.stores` entry-point group; Supabase built in (optional extra) |
-| Config | TOML — `~/.tokentracer.toml`, secrets via env vars or `~/.tokentracer.env` |
+| Config | TOML — `~/.tokentracer/.tokentracer.toml`, secrets via env vars or `~/.tokentracer/.tokentracer.env` |
 | Packaging | `pyproject.toml` console script `tokentracer` — installable with pipx / uv / pip |
 | Testing | pytest (`pip install -r requirements.txt`) |
 
@@ -267,7 +267,7 @@ python3 tracker.py projects
 python3 tracker.py sync
 python3 tracker.py sync --dry-run   # show pending counts without pushing
 
-# Configuration (persisted to ~/.tokentracer.toml)
+# Configuration (persisted to ~/.tokentracer/.tokentracer.toml)
 python tracker.py config set track_project_names whimsical
 python3 tracker.py config set context work        # label this machine's usage as "work"
 ```
@@ -292,18 +292,18 @@ your total token budget came from the cache, and the approximate cost saving
 
 ## Configuration
 
-Settings are stored in `~/.tokentracer.toml` in your home directory:
+Settings are stored in `~/.tokentracer/.tokentracer.toml` in your home directory:
 
 | OS | Config file | Env file (secrets) |
 | --- | --- | --- |
-| macOS / Linux | `~/.tokentracer.toml` | `~/.tokentracer.env` |
-| Windows | `C:\Users\<you>\.tokentracer.toml` | `C:\Users\<you>\.tokentracer.env` |
+| macOS / Linux | `~/.tokentracer/.tokentracer.toml` | `~/.tokentracer/.tokentracer.env` |
+| Windows | `C:\Users\<you>\.tokentracer\.tokentracer.toml` | `C:\Users\<you>\.tokentracer\.tokentracer.env` |
 
 You can edit the file directly
 or use `tracker.py config set <key> <value>` to update individual keys.
 
 ```toml
-# ~/.tokentracer.toml
+# ~/.tokentracer/.tokentracer.toml
 
 [tracking]
 # Project labeling mode stored in sessions.project.
@@ -328,7 +328,7 @@ python3 tracker.py config set context work
 ```
 
 `tracker.py config set track_project_names` validates the enum and rejects old
-boolean values such as `true` / `false`. If `~/.tokentracer.toml` still contains
+boolean values such as `true` / `false`. If `~/.tokentracer/.tokentracer.toml` still contains
 a legacy boolean or any other invalid value, TokenTrace warns and falls back to
 `"no"`.
 
@@ -347,9 +347,9 @@ CLI flags `--project-mode <yes|no|whimsical>` and `--context <label>` on the
 Beyond the local SQLite database, TokenTracer can push session records to
 **remote stores** via a pluggable stores registry. Each store implements the
 `SessionStore` protocol (`name`, `upsert(records)`, `close()`), and remote
-stores are configured with `[stores.<name>]` sections in `~/.tokentracer.toml`. `${VAR}` placeholders in
+stores are configured with `[stores.<name>]` sections in `~/.tokentracer/.tokentracer.toml`. `${VAR}` placeholders in
 values are resolved from environment variables first, then from a
-`~/.tokentracer.env` file (`KEY=VALUE` lines), so secrets never live in the
+`~/.tokentracer/.tokentracer.env` file (`KEY=VALUE` lines), so secrets never live in the
 config file.
 
 Run `tokentracer sync` to push records that haven't been synced to each store
@@ -366,7 +366,7 @@ pip install "tokentracer[supabase]"     # pulls in supabase-py >= 2.0
 ```
 
 ```toml
-# ~/.tokentracer.toml
+# ~/.tokentracer/.tokentracer.toml
 [stores.supabase]
 url = "${SUPABASE_URL}"
 key = "${SUPABASE_KEY}"      # service role key
@@ -412,7 +412,7 @@ Then:
 export SUPABASE_URL=https://<project>.supabase.co
 export SUPABASE_KEY=<service-role-key>
 
-# ...or put them in ~/.tokentracer.env (env vars win if both are set):
+# ...or put them in ~/.tokentracer/.tokentracer.env (env vars win if both are set):
 #   SUPABASE_URL=https://<project>.supabase.co
 #   SUPABASE_KEY=<service-role-key>
 
@@ -448,7 +448,7 @@ TokenTracer's code:
    mystore = "my_package.store:MyStore"
    ```
 
-3. Enable it in `~/.tokentracer.toml` — constructor kwargs come straight from
+3. Enable it in `~/.tokentracer/.tokentracer.toml` — constructor kwargs come straight from
    the section (with `${VAR}` env expansion):
 
    ```toml

@@ -81,7 +81,7 @@ flowchart LR
 | `src/model_aliases.toml` | Static cross-vendor `(source, raw) -> canonical` alias table |
 | `src/stores/` | `SessionStore` protocol, SQLite + Supabase implementations, registry |
 | `src/report.py` | `UsageReporter`: aggregation and table rendering |
-| `src/config.py` | Paths, `~/.tokentracer.toml` loading, `${VAR}` expansion |
+| `src/config.py` | Paths, `~/.tokentracer/.tokentracer.toml` loading, `${VAR}` expansion |
 | `src/whimsy/` | Standalone stdlib-only `generate_name()` package for masked project names |
 
 ---
@@ -489,8 +489,8 @@ keeps the package extractable into its own repository later.
 
 ## Configuration
 
-`Config.load()` (`src/config.py`) reads `~/.tokentracer.toml`
-(`C:\Users\<you>\.tokentracer.toml` on Windows):
+`Config.load()` (`src/config.py`) reads `~/.tokentracer/.tokentracer.toml`
+(`C:\Users\<you>\.tokentracer\.tokentracer.toml` on Windows):
 
 - `[tracking] track_project_names` (string, default `"no"`) — one of
   `"yes"` (real name), `"no"` (stable 12-hex guid per cwd), or
@@ -504,7 +504,7 @@ keeps the package extractable into its own repository later.
 - `[stores.<name>]` sections declare remote stores (see below).
 
 `${VAR}` placeholders in string values are expanded at store instantiation:
-lookup order is `os.environ` first, then `~/.tokentracer.env` (simple
+lookup order is `os.environ` first, then `~/.tokentracer/.tokentracer.env` (simple
 `KEY=VALUE` file; `#` comments and optional quotes supported). A missing
 variable raises `ValueError`, so secrets never need to live in the TOML file.
 
@@ -587,7 +587,7 @@ table = "token_sessions"     # optional, this is the default
 4. Add tests under `tests/` mocking the client
    (see `tests/test_supabase_store.py`).
 5. Users enable it with a `[stores.<name>]` section in
-   `~/.tokentracer.toml`.
+   `~/.tokentracer/.tokentracer.toml`.
 
 ### Adding a middleware
 

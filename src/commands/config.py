@@ -1,4 +1,4 @@
-"""The `config` subcommand: manage ~/.tokentracer.toml settings."""
+"""The `config` subcommand: manage ~/.tokentracer/.tokentracer.toml settings."""
 from __future__ import annotations
 
 import argparse
@@ -55,5 +55,5 @@ class ConfigCommand:
             )
             return 1
         write_toml_setting(args.key, value)
-        print(f"Set {args.key} = {value} in ~/.tokentracer.toml")
+        print(f"Set {args.key} = {value} in ~/.tokentracer/.tokentracer.toml")
         return 0
