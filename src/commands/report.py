@@ -16,7 +16,7 @@ class ReportCommand:
         parser.add_argument("--period", choices=["all", "day", "month", "year"],
                             default="day")
         parser.add_argument("--model", action="append", dest="model",
-                            help="filter to model(s) (repeatable)")
+                            help="filter to canonical model name(s) (repeatable)")
         parser.add_argument("--by-project", action="store_true",
                             help="group by project (requires project tracking enabled)")
         parser.add_argument("--summary", action="store_true",
