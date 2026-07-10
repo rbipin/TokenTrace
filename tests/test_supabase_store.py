@@ -9,11 +9,17 @@ from src.models import SessionRecord
 from src.stores.supabase import SupabaseStore
 
 
-def _rec(sid: str = "s1", source: str = "claude", model: str = "claude-sonnet-4-6") -> SessionRecord:
+def _rec(
+    sid: str = "s1",
+    source: str = "claude",
+    model: str = "claude-sonnet-4-6",
+    canonical_model: str | None = "claude-sonnet-4-6",
+) -> SessionRecord:
     return SessionRecord(
         session_id=sid,
         source=source,
         model=model,
+        canonical_model=canonical_model,
         date="2026-07-01",
         start_ts="2026-07-01T10:00:00",
         end_ts="2026-07-01T11:00:00",
@@ -74,6 +80,19 @@ def test_upsert_sends_correct_row_shape():
     assert row["output_tokens"] == 200
     assert row["cache_creation_tokens"] == 10
     assert row["cache_read_tokens"] == 20
+    assert row["canonical_model"] == "claude-sonnet-4-6"
+
+
+def test_upsert_includes_canonical_model_for_backfill():
+    """collect --lookback + sync must re-push normalized names to remote stores."""
+    mock_client = MagicMock()
+    with patch("src.stores.supabase._create_client", return_value=mock_client):
+        store = _make_store()
+        store.upsert([_rec(model="claude-sonnet-4-5-20250929", canonical_model="claude-sonnet-4-5")])
+
+    rows = mock_client.table.return_value.upsert.call_args[0][0]
+    assert rows[0]["model"] == "claude-sonnet-4-5-20250929"
+    assert rows[0]["canonical_model"] == "claude-sonnet-4-5"
 
 
 def test_upsert_uses_conflict_key():
