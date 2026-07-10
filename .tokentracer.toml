@@ -8,5 +8,5 @@ context = "personal"
 [stores.supabase]
 url = "${SUPABASE_URL}"
 key = "${SUPABASE_KEY}"
-table = "token_sessions"
+table = "token_usage"
 
