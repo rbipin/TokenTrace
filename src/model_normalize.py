@@ -5,10 +5,18 @@ import tomllib
 from pathlib import Path
 
 
+_ALIASES_PATH = Path(__file__).parent / "model_aliases.toml"
+
+
 def _load_aliases() -> dict[str, dict[str, str]]:
-    """Load model aliases from the TOML file."""
-    aliases_path = Path(__file__).parent / "model_aliases.toml"
-    with open(aliases_path, "rb") as f:
+    """Load model aliases from the TOML file.
+
+    Degrades gracefully to an empty alias table when the file is missing,
+    so a missing/malformed alias TOML doesn't crash CLI startup.
+    """
+    if not _ALIASES_PATH.exists():
+        return {}
+    with open(_ALIASES_PATH, "rb") as f:
         return tomllib.load(f)
 
 
