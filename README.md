@@ -116,6 +116,14 @@ Collector.collect(since)          one collector per AI tool surface
 - Upsert is **last-write-wins** — no summation across runs.
 - Collectors are **read-only** with respect to their source files.
 
+Before records are written, they pass through a pluggable **middleware**
+pipeline. Today that's model-name normalization: raw model identifiers
+reported differently by each source (e.g. Copilot vs. Claude Code) are
+resolved to a stable `canonical_model`, so reports can group and filter by
+model regardless of which tool collected the session. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#middleware) for how the
+middleware system works and how to add a new one.
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture: collect data flow, exact source files and schemas, storage, sync, and extension points. [docs/DESIGN-HISTORY.md](docs/DESIGN-HISTORY.md) records the design decisions that shaped the project.
 
 ---

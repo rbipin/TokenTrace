@@ -74,7 +74,12 @@ src/
     projects.py          ProjectsCommand
     sync.py              SyncCommand (+ _run_sync core logic)
     common.py            load_remote_stores helper shared by collect/sync
-  models.py              SessionRecord frozen dataclass; merge_records deduplicates by (session_id, source, model)
+  models.py              SessionRecord frozen dataclass (has canonical_model field); merge_records deduplicates by (session_id, source, model)
+  middleware/            Pluggable RecordMiddleware chain (Pipes-and-Filters), run in TrackerPipeline.run() after merge_records, before upsert
+    base.py              RecordMiddleware Protocol: name, applies(records) -> bool, process(records) -> list[SessionRecord]
+    model_normalize.py   ModelNormalizeMiddleware — always applies; sets canonical_model via normalize_model()
+  model_normalize.py     normalize_model(raw, source): strip -YYYYMMDD suffix -> alias lookup in model_aliases.toml -> passthrough
+  model_aliases.toml     Static alias table, keyed by [source] then raw model string -> canonical name
   project_identity.py    ProjectIdentityStore (local-only project-key→guid→whimsical table; keys are repo slugs or folder names, never full paths) + ProjectNameResolver (tri-state naming policy)
   repo_identity.py       resolve_repo_slug(cwd): walks up to .git, parses origin remote from config -> owner/repo (read-only, cached, never raises)
   collectors/
@@ -88,12 +93,12 @@ src/
     sqlite.py            SqliteStore — local SQLite sink; sessions table, idempotent upsert, sync tracking
     supabase.py          SupabaseStore — remote sink; upserts into a Supabase token_sessions table
   store.py               Deprecated alias for SqliteStore (kept for backward compat)
-  pipeline.py            Fluent TrackerPipeline; runs collectors in parallel via ThreadPoolExecutor
+  pipeline.py            Fluent TrackerPipeline; runs collectors in parallel via ThreadPoolExecutor; .middlewares(*mw) registers the RecordMiddleware chain run in run()
   config.py              Paths, TOML loading (Config.load()), write_toml_setting(), _expand_env_vars()
   report.py              UsageReporter: all/day/month/year periods, cache efficiency header, default detailed session view includes Reasoning, CtxPeak, and Tools columns, --summary, --by-project, --detailed (all rows + all columns + Synced from sync_log)
 ```
 
-**Data flow**: `Collector.collect(since)` → `List[SessionRecord]` → `merge_records` deduplicates → `UsageStore.upsert` writes SQLite → `UsageReporter.report` aggregates for display.
+**Data flow**: `Collector.collect(since)` → `List[SessionRecord]` → `merge_records` deduplicates → RecordMiddleware chain transforms (e.g. `ModelNormalizeMiddleware` sets `canonical_model`) → `UsageStore.upsert` writes SQLite → `UsageReporter.report` aggregates for display.
 
 **Key invariants**:
 - `collect` is always idempotent — re-running overwrites existing session rows. Merge key is `(session_id, source, model)`.
@@ -146,3 +151,12 @@ table = "token_sessions"     # optional, this is the default
 5. Add tests under `tests/` using `tmp_path` to create fixture files.
 
 Nothing else needs to change.
+
+## Adding a new middleware
+
+1. Implement `RecordMiddleware` (`src/middleware/base.py`): `name: str`, `applies(records) -> bool`, `process(records) -> list[SessionRecord]`.
+2. Register it via `.middlewares(...)` on the `TrackerPipeline` where it's built — currently `_build_pipeline()` in `src/commands/collect.py`. Middlewares run in registration order; each one's `applies()` gates whether its `process()` runs.
+3. `SessionRecord` is a **frozen dataclass** — `process()` must return new records built with `dataclasses.replace()`, never mutate in place.
+4. Add tests under `tests/` covering both `applies()` and `process()`.
+
+See `docs/ARCHITECTURE.md#middleware` for the full design (Pipes-and-Filters) and `ModelNormalizeMiddleware` as the worked example.
