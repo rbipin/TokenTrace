@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     session_id             TEXT NOT NULL,
     source                 TEXT NOT NULL,
     model                  TEXT NOT NULL,
+    canonical_model        TEXT,
     date                   TEXT NOT NULL,
     start_ts               TEXT,
     end_ts                 TEXT,
@@ -21,7 +22,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     turns                  INTEGER DEFAULT 0,
     tool_calls             INTEGER DEFAULT 0,
     input_tokens           INTEGER DEFAULT 0,
-    output_tokens          INTEGER DEFAULT 0,
+    output_tokens           INTEGER DEFAULT 0,
     cache_creation_tokens  INTEGER DEFAULT 0,
     cache_read_tokens      INTEGER DEFAULT 0,
     context_peak_tokens    INTEGER DEFAULT 0,
@@ -44,11 +45,11 @@ CREATE TABLE IF NOT EXISTS sync_log (
 
 _UPSERT = """
 INSERT OR REPLACE INTO sessions
-    (session_id, source, model, date, start_ts, end_ts, project,
+    (session_id, source, model, canonical_model, date, start_ts, end_ts, project,
      turns, tool_calls, input_tokens, output_tokens,
      cache_creation_tokens, cache_read_tokens,
      context_peak_tokens, reasoning_tokens, context)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -97,6 +98,10 @@ class SqliteStore:
                 conn.execute(
                     "ALTER TABLE sessions ADD COLUMN context TEXT DEFAULT 'personal'"
                 )
+            if "canonical_model" not in cols:
+                conn.execute(
+                    "ALTER TABLE sessions ADD COLUMN canonical_model TEXT"
+                )
             conn.commit()
 
     def upsert(self, records: list[SessionRecord]) -> int:
@@ -115,7 +120,7 @@ class SqliteStore:
                 _UPSERT,
                 [
                     (
-                        r.session_id, r.source, r.model, r.date,
+                        r.session_id, r.source, r.model, r.canonical_model, r.date,
                         r.start_ts, r.end_ts, r.project,
                         r.turns, r.tool_calls, r.input_tokens, r.output_tokens,
                         r.cache_creation_tokens, r.cache_read_tokens,
@@ -135,8 +140,9 @@ class SqliteStore:
     def unsynced_for(self, store_name: str) -> list[SessionRecord]:
         """Return all records not yet synced to the given store."""
         _UNSYNCED = """
-        SELECT s.session_id, s.source, s.model, s.date, s.start_ts, s.end_ts,
-               s.project, s.turns, s.tool_calls, s.input_tokens, s.output_tokens,
+        SELECT s.session_id, s.source, s.model, s.canonical_model, s.date,
+               s.start_ts, s.end_ts, s.project, s.turns, s.tool_calls,
+               s.input_tokens, s.output_tokens,
                s.cache_creation_tokens, s.cache_read_tokens,
                s.context_peak_tokens, s.reasoning_tokens, s.context
         FROM sessions s
@@ -151,13 +157,13 @@ class SqliteStore:
             rows = conn.execute(_UNSYNCED, (store_name,)).fetchall()
         return [
             SessionRecord(
-                session_id=row[0], source=row[1], model=row[2], date=row[3],
-                start_ts=row[4], end_ts=row[5], project=row[6],
-                turns=row[7], tool_calls=row[8], input_tokens=row[9],
-                output_tokens=row[10], cache_creation_tokens=row[11],
-                cache_read_tokens=row[12], context_peak_tokens=row[13],
-                reasoning_tokens=row[14],
-                context=row[15] if row[15] is not None else "personal",
+                session_id=row[0], source=row[1], model=row[2], canonical_model=row[3],
+                date=row[4], start_ts=row[5], end_ts=row[6], project=row[7],
+                turns=row[8], tool_calls=row[9], input_tokens=row[10],
+                output_tokens=row[11], cache_creation_tokens=row[12],
+                cache_read_tokens=row[13], context_peak_tokens=row[14],
+                reasoning_tokens=row[15],
+                context=row[16] if row[16] is not None else "personal",
             )
             for row in rows
         ]
