@@ -107,6 +107,10 @@ class SqliteStore:
     def upsert(self, records: list[SessionRecord]) -> int:
         """Persist records using INSERT OR REPLACE (last-write-wins).
 
+        If a record's stored values differ from what's already in the table,
+        its sync_log entries are cleared so unsynced_for() picks it up again
+        on the next sync — otherwise a backfill would silently never re-push.
+
         Args:
             records: List of SessionRecord objects to upsert.
 
@@ -116,19 +120,29 @@ class SqliteStore:
         if not records:
             return 0
         with closing(self._connect()) as conn, conn:
-            conn.executemany(
-                _UPSERT,
-                [
-                    (
-                        r.session_id, r.source, r.model, r.canonical_model, r.date,
-                        r.start_ts, r.end_ts, r.project,
-                        r.turns, r.tool_calls, r.input_tokens, r.output_tokens,
-                        r.cache_creation_tokens, r.cache_read_tokens,
-                        r.context_peak_tokens, r.reasoning_tokens, r.context,
+            for r in records:
+                new_row = (
+                    r.model, r.canonical_model, r.date, r.start_ts, r.end_ts, r.project,
+                    r.turns, r.tool_calls, r.input_tokens, r.output_tokens,
+                    r.cache_creation_tokens, r.cache_read_tokens,
+                    r.context_peak_tokens, r.reasoning_tokens, r.context,
+                )
+                existing = conn.execute(
+                    """
+                    SELECT model, canonical_model, date, start_ts, end_ts, project,
+                           turns, tool_calls, input_tokens, output_tokens,
+                           cache_creation_tokens, cache_read_tokens,
+                           context_peak_tokens, reasoning_tokens, context
+                    FROM sessions WHERE session_id = ? AND source = ? AND model = ?
+                    """,
+                    (r.session_id, r.source, r.model),
+                ).fetchone()
+                if existing is not None and tuple(existing) != new_row:
+                    conn.execute(
+                        "DELETE FROM sync_log WHERE session_id = ? AND source = ? AND model = ?",
+                        (r.session_id, r.source, r.model),
                     )
-                    for r in records
-                ],
-            )
+                conn.execute(_UPSERT, (r.session_id, r.source) + new_row)
         return len(records)
 
     def close(self) -> None:
