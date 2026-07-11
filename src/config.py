@@ -223,3 +223,26 @@ def _write_toml_legacy(key: str, value: bool | str) -> None:
         new_lines.append(f"{key} = {val_str}")
 
     _TOML_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+
+_BUNDLED_ALIASES_PATH = Path(__file__).parent / "model_aliases.toml"
+_USER_ALIASES_PATH = Path.home() / ".tokentracer" / "model_aliases.toml"
+
+
+def ensure_user_config_seeded() -> None:
+    """Seed ~/.tokentracer/ with default config files on first run.
+
+    Installed builds (wheel/uv tool) don't run pip post-install hooks, so this
+    runs once at CLI startup instead: copies the bundled model_aliases.toml and
+    writes a default .tokentracer.toml into ~/.tokentracer/ if not already there.
+    Never overwrites files a user has already created or edited.
+    """
+    target_dir = Path.home() / ".tokentracer"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    if not _USER_ALIASES_PATH.exists() and _BUNDLED_ALIASES_PATH.exists():
+        _USER_ALIASES_PATH.write_text(
+            _BUNDLED_ALIASES_PATH.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+    if not _TOML_PATH.exists():
+        write_toml_setting("track_project_names", Config.track_project_names)
+        write_toml_setting("context", Config.context)

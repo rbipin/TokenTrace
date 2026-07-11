@@ -27,3 +27,6 @@ py-modules = ["tracker"]
 
 [tool.setuptools.packages.find]
 include = ["src*"]
+
+[tool.setuptools.package-data]
+src = ["model_aliases.toml"]

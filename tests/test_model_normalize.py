@@ -47,5 +47,28 @@ def test_alias_lookup_applies_after_stripping_date_suffix():
 
 
 def test_load_aliases_returns_empty_dict_when_file_missing():
-    with patch("src.model_normalize._ALIASES_PATH", Path("/nonexistent/model_aliases.toml")):
+    with (
+        patch("src.model_normalize._USER_ALIASES_PATH", Path("/nonexistent/user/model_aliases.toml")),
+        patch("src.model_normalize._BUNDLED_ALIASES_PATH", Path("/nonexistent/bundled/model_aliases.toml")),
+    ):
         assert _load_aliases() == {}
+
+
+def test_load_aliases_prefers_user_file_over_bundled(tmp_path):
+    user_path = tmp_path / "model_aliases.toml"
+    user_path.write_text('[copilot_cli]\n"foo" = "bar"\n', encoding="utf-8")
+    with (
+        patch("src.model_normalize._USER_ALIASES_PATH", user_path),
+        patch("src.model_normalize._BUNDLED_ALIASES_PATH", Path("/nonexistent/bundled/model_aliases.toml")),
+    ):
+        assert _load_aliases() == {"copilot_cli": {"foo": "bar"}}
+
+
+def test_load_aliases_falls_back_to_bundled_when_user_file_missing(tmp_path):
+    bundled_path = tmp_path / "model_aliases.toml"
+    bundled_path.write_text('[copilot_cli]\n"foo" = "bar"\n', encoding="utf-8")
+    with (
+        patch("src.model_normalize._USER_ALIASES_PATH", Path("/nonexistent/user/model_aliases.toml")),
+        patch("src.model_normalize._BUNDLED_ALIASES_PATH", bundled_path),
+    ):
+        assert _load_aliases() == {"copilot_cli": {"foo": "bar"}}

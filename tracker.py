@@ -9,6 +9,7 @@ import argparse
 import sys
 
 from src.commands import COMMANDS
+from src.config import ensure_user_config_seeded
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    ensure_user_config_seeded()
     parser = build_parser()
     args = parser.parse_args()
 

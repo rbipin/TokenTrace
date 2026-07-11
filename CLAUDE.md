@@ -79,7 +79,7 @@ src/
     base.py              RecordMiddleware Protocol: name, applies(records) -> bool, process(records) -> list[SessionRecord]
     model_normalize.py   ModelNormalizeMiddleware — always applies; sets canonical_model via normalize_model()
   model_normalize.py     normalize_model(raw, source): strip -YYYYMMDD suffix -> alias lookup in model_aliases.toml -> passthrough
-  model_aliases.toml     Static alias table, keyed by [source] then raw model string -> canonical name
+  model_aliases.toml     Static alias table, keyed by [source] then raw model string -> canonical name. Loaded from ~/.tokentracer/model_aliases.toml if present, else the bundled copy in this directory — lets users add/override aliases without a package release
   project_identity.py    ProjectIdentityStore (local-only project-key→guid→whimsical table; keys are repo slugs or folder names, never full paths) + ProjectNameResolver (tri-state naming policy)
   repo_identity.py       resolve_repo_slug(cwd): walks up to .git, parses origin remote from config -> owner/repo (read-only, cached, never raises)
   collectors/
@@ -94,7 +94,7 @@ src/
     supabase.py          SupabaseStore — remote sink; upserts into a Supabase token_sessions table
   store.py               Deprecated alias for SqliteStore (kept for backward compat)
   pipeline.py            Fluent TrackerPipeline; runs collectors in parallel via ThreadPoolExecutor; .middlewares(*mw) registers the RecordMiddleware chain run in run(); a successful remote-store push also marks the record synced in the local store's sync_log (via mark_synced, duck-typed so pipeline.py never imports SqliteStore) — a mark_synced failure is reported separately and does not count as a push failure
-  config.py              Paths, TOML loading (Config.load()), write_toml_setting(), _expand_env_vars()
+  config.py              Paths, TOML loading (Config.load()), write_toml_setting(), _expand_env_vars(), ensure_user_config_seeded() (called once from tracker.py main(); seeds ~/.tokentracer/model_aliases.toml and .tokentracer.toml from bundled defaults on first run, since installed builds get no pip post-install hook)
   report.py              UsageReporter: all/day/month/year periods, cache efficiency header, default detailed session view includes Reasoning, CtxPeak, and Tools columns, --summary, --by-project, --detailed (all rows + all columns + Synced from sync_log)
 ```
 
