@@ -107,3 +107,23 @@ def test_failed_remote_push_leaves_unsynced(tmp_path):
         .run()
     )
     assert len(sqlite.unsynced_for("remote_bad")) == 1
+
+
+def test_mark_synced_failure_does_not_mark_push_as_failed(tmp_path, capsys):
+    class FlakySqlite(SqliteStore):
+        def mark_synced(self, records, store_name):
+            raise RuntimeError("db locked")
+
+    sqlite = FlakySqlite(tmp_path / "usage.db")
+    remote = _StubStore("remote_a")
+    col = _StubCollector("claude_cli", [_rec("s1")])
+    result = (
+        TrackerPipeline().add(col)
+        .since(date(2026, 1, 1))
+        .stores(sqlite, remote)
+        .run()
+    )
+    assert result.stores_failed == []
+    assert len(remote.received) == 1
+    captured = capsys.readouterr()
+    assert "remote_a" in captured.err
