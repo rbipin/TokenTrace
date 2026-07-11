@@ -68,12 +68,12 @@ src/
   commands/              Command pattern + static registry: one module per subcommand
     base.py              Command protocol (name, help, configure(parser), run(args) -> int)
     __init__.py          COMMANDS registry list (add new commands here)
-    collect.py           CollectCommand (+ _build_pipeline / _build_stores helpers)
+    collect.py           CollectCommand (+ _build_pipeline / _build_stores helpers); after the pipeline run, sweeps any still-unsynced records via common.run_sync()
     report.py            ReportCommand
     config.py            ConfigCommand (owns its own set sub-dispatch)
     projects.py          ProjectsCommand
-    sync.py              SyncCommand (+ _run_sync core logic)
-    common.py            load_remote_stores helper shared by collect/sync
+    sync.py              SyncCommand, using common.run_sync() for its push/retry logic
+    common.py            load_remote_stores helper + run_sync(sqlite_store, remote_stores, dry_run) core push/retry logic, shared by collect and sync
   models.py              SessionRecord frozen dataclass (has canonical_model field); merge_records deduplicates by (session_id, source, model)
   middleware/            Pluggable RecordMiddleware chain (Pipes-and-Filters), run in TrackerPipeline.run() after merge_records, before upsert
     base.py              RecordMiddleware Protocol: name, applies(records) -> bool, process(records) -> list[SessionRecord]
@@ -93,7 +93,7 @@ src/
     sqlite.py            SqliteStore — local SQLite sink; sessions table, idempotent upsert, sync tracking
     supabase.py          SupabaseStore — remote sink; upserts into a Supabase token_sessions table
   store.py               Deprecated alias for SqliteStore (kept for backward compat)
-  pipeline.py            Fluent TrackerPipeline; runs collectors in parallel via ThreadPoolExecutor; .middlewares(*mw) registers the RecordMiddleware chain run in run()
+  pipeline.py            Fluent TrackerPipeline; runs collectors in parallel via ThreadPoolExecutor; .middlewares(*mw) registers the RecordMiddleware chain run in run(); a successful remote-store push also marks the record synced in the local store's sync_log (via mark_synced, duck-typed so pipeline.py never imports SqliteStore) — a mark_synced failure is reported separately and does not count as a push failure
   config.py              Paths, TOML loading (Config.load()), write_toml_setting(), _expand_env_vars()
   report.py              UsageReporter: all/day/month/year periods, cache efficiency header, default detailed session view includes Reasoning, CtxPeak, and Tools columns, --summary, --by-project, --detailed (all rows + all columns + Synced from sync_log)
 ```
@@ -115,7 +115,8 @@ Stores implement the `SessionStore` Protocol in `src/stores/__init__.py` (`name:
 
 - **Discovery**: `load_store_registry()` in `src/stores/registry.py` discovers stores via the `tokentracer.stores` entry-point group (declared in `pyproject.toml`). When the package isn't installed (repo checkout), it falls back to the built-ins: `sqlite` and `supabase`.
 - **Instantiation**: `instantiate_store(name, params, class_path=None)` expands `${VAR}` env placeholders in `params`, then constructs the store — via `class_path` (dotted import path, bypasses the registry) if given, else by registry name.
-- **Sync flow**: `tracker.py sync` reads `[stores.*]` from `~/.tokentracer/.tokentracer.toml`, and for each remote store pushes rows the SqliteStore reports as unsynced (`unsynced_for(store_name)`), then marks them synced per store. `--dry-run` prints pending counts only. Failed stores are reported without blocking others; stores are always closed in a `finally`.
+- **Sync flow**: `tracker.py sync` reads `[stores.*]` from `~/.tokentracer/.tokentracer.toml`, and for each remote store pushes rows the SqliteStore reports as unsynced (`unsynced_for(store_name)`), then marks them synced per store. `--dry-run` prints pending counts only. Failed stores are reported without blocking others; stores are always closed in a `finally`. This push/retry logic lives in `run_sync()` (`src/commands/common.py`), shared by `sync` and by `collect`'s post-run sweep below.
+- **Collect also syncs**: `tracker.py collect` pushes freshly-collected records to remote stores inline as part of the pipeline run (`TrackerPipeline.run()`), marking each successful push synced immediately. After that, if any remote stores are configured, `collect` calls `run_sync()` once more to sweep and retry anything still marked unsynced — records whose remote push failed in this run or a prior one. In steady state (no failures) the sweep finds nothing pending and prints nothing; it only surfaces output (`Synced N pending record(s) to <store>`, or a `Warning [<store>]: ...` on failure) when there's something to report. This means the scheduled task (`register-task.sh` / `register-task.ps1`, which only ever calls `collect`) is self-healing without a second scheduled sync job.
 
 **Built-in remote store — Supabase** (`src/stores/supabase.py`): upserts rows into a `token_sessions` table with `on_conflict="session_id,source,model"` (mirrors the local primary key). Lazy client creation on first upsert; requires optional dep `supabase>=2.0` (`pip install tokentracer[supabase]`). The upserted payload includes `tool_calls`, `reasoning_tokens`, and `context_peak_tokens`; the remote `token_sessions` table must have those bigint columns. Configure with:
 
