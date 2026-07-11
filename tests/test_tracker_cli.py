@@ -137,3 +137,103 @@ def test_build_pipeline_wires_model_normalize_middleware(tmp_path):
     pipeline, _ = collect_cmd._build_pipeline(_cfg(tmp_path, "yes"))
     assert len(pipeline._middlewares) == 1
     assert pipeline._middlewares[0].name == "model_normalize"
+
+
+def test_cmd_collect_sweeps_unsynced_records(tmp_path, monkeypatch, capsys):
+    class FakeResult:
+        errors = ()
+        stores_failed = ()
+        records_written = 0
+        collectors_run = 0
+
+    class FakePipeline:
+        def since(self, _):
+            return self
+
+        def stores(self, *_):
+            return self
+
+        def run(self):
+            return FakeResult()
+
+    class FakeSqlite:
+        def __init__(self, pending):
+            self._pending = list(pending)
+            self.marked = []
+
+        def unsynced_for(self, name):
+            return list(self._pending)
+
+        def mark_synced(self, records, name):
+            self.marked.append((name, [r.session_id for r in records]))
+            self._pending = []
+
+        def close(self):
+            pass
+
+    class FakeRemote:
+        name = "remote_a"
+
+        def __init__(self):
+            self.pushed = []
+
+        def upsert(self, records):
+            self.pushed.extend(records)
+            return len(records)
+
+        def close(self):
+            pass
+
+    from src.models import SessionRecord
+
+    def _rec(sid):
+        return SessionRecord(session_id=sid, source="claude_cli",
+                             model="claude-sonnet-4-6", date="2026-07-01", turns=1)
+
+    fake_sqlite = FakeSqlite([_rec("s1")])
+    fake_remote = FakeRemote()
+
+    monkeypatch.setattr(Config, "load", classmethod(lambda cls, **kw: _cfg(tmp_path, "no")))
+    monkeypatch.setattr(collect_cmd, "_build_pipeline", lambda cfg: (FakePipeline(), None))
+    monkeypatch.setattr(collect_cmd, "_build_stores", lambda cfg: [fake_sqlite, fake_remote])
+
+    parser = tracker.build_parser()
+    args = parser.parse_args(["collect"])
+    assert args.run(args) == 0
+
+    assert fake_remote.pushed == [_rec("s1")]
+    assert fake_sqlite.marked == [("remote_a", ["s1"])]
+    captured = capsys.readouterr()
+    assert "Synced 1 pending record(s) to remote_a" in captured.out
+
+
+def test_cmd_collect_no_sweep_when_no_remote_stores(tmp_path, monkeypatch, capsys):
+    class FakeResult:
+        errors = ()
+        stores_failed = ()
+        records_written = 0
+        collectors_run = 0
+
+    class FakePipeline:
+        def since(self, _):
+            return self
+
+        def stores(self, *_):
+            return self
+
+        def run(self):
+            return FakeResult()
+
+    class SpyStore:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(Config, "load", classmethod(lambda cls, **kw: _cfg(tmp_path, "no")))
+    monkeypatch.setattr(collect_cmd, "_build_pipeline", lambda cfg: (FakePipeline(), None))
+    monkeypatch.setattr(collect_cmd, "_build_stores", lambda cfg: [SpyStore()])
+
+    parser = tracker.build_parser()
+    args = parser.parse_args(["collect"])
+    assert args.run(args) == 0
+    captured = capsys.readouterr()
+    assert "Synced" not in captured.out

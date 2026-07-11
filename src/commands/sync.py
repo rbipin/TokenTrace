@@ -2,44 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
-from src.commands.common import load_remote_stores
+from src.commands.common import load_remote_stores, run_sync
 from src.config import Config
 from src.stores.sqlite import SqliteStore
-
-
-def _run_sync(
-    sqlite_store,
-    remote_stores: list,
-    dry_run: bool,
-) -> dict:
-    """Core sync logic — separated for testability.
-
-    Returns a dict: {store_name: {"pushed": N, "failed": bool} | {"pending": N}}
-    """
-    result = {}
-    for store in remote_stores:
-        pending = sqlite_store.unsynced_for(store.name)
-        if dry_run:
-            result[store.name] = {"pending": len(pending)}
-            store.close()
-            continue
-        try:
-            if pending:
-                store.upsert(pending)
-                sqlite_store.mark_synced(pending, store.name)
-            result[store.name] = {"pushed": len(pending), "failed": False}
-        except Exception as exc:
-            print(f"Warning [{store.name}]: {exc}", file=sys.stderr)
-            result[store.name] = {"pushed": 0, "failed": True, "error": str(exc)}
-        finally:
-            try:
-                store.close()
-            except Exception:
-                pass
-    return result
 
 
 class SyncCommand:
@@ -68,7 +35,7 @@ class SyncCommand:
 
         label = "(dry run) " if args.dry_run else ""
         print(f"Syncing {len(remote_stores)} store(s)... {label}")
-        result = _run_sync(sqlite_store, remote_stores, dry_run=args.dry_run)
+        result = run_sync(sqlite_store, remote_stores, dry_run=args.dry_run)
 
         for store_name, info in result.items():
             if args.dry_run:

@@ -44,9 +44,9 @@ def test_identity_rows_do_not_enter_sync_payloads(tmp_path):
     sqlite = SqliteStore(db)
     remote = _RecordingRemote()
 
-    from src.commands.sync import _run_sync
+    from src.commands.common import run_sync
 
-    result = _run_sync(sqlite, [remote], dry_run=False)
+    result = run_sync(sqlite, [remote], dry_run=False)
 
     assert result == {"supabase": {"pushed": 1, "failed": False}}
     assert remote.pushed == [seeded]

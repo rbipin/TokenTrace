@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
@@ -114,9 +115,14 @@ class TrackerPipeline:
             try:
                 store.upsert(merged)
                 store.close()
-                return None
             except Exception as exc:
                 return f"{store.name}: {exc}"
+            if hasattr(self._stores[0], "mark_synced"):
+                try:
+                    self._stores[0].mark_synced(merged, store.name)
+                except Exception as exc:
+                    print(f"Warning [sync_log:{store.name}]: {exc}", file=sys.stderr)
+            return None
 
         if len(self._stores) > 1:
             with ThreadPoolExecutor(max_workers=len(self._stores) - 1) as pool:

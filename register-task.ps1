@@ -16,6 +16,7 @@ if ($tokentracer) {
     $argument = "collect --lookback 1"
     $workDir  = $HOME
     $dbHint   = "$HOME\.tokentracer\usage.db"
+    $logDir   = "$HOME\.tokentracer"
     Write-Host "Using packaged tokentracer: $exe"
 } else {
     # Repo checkout: run tracker.py next to this script with python on PATH
@@ -34,13 +35,30 @@ if ($tokentracer) {
     $argument = "`"$scriptPath`" collect --lookback 1"
     $workDir  = $PSScriptRoot
     $dbHint   = "$PSScriptRoot\usage.db"
+    $logDir   = $PSScriptRoot
     Write-Host "Using repo checkout: $scriptPath (python: $exe)"
 }
 
+if (-not (Test-Path $logDir)) {
+    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+}
+$logPath = Join-Path $logDir "tracker.log"
+
 # -- Build task components -------------------------------------------------
+# Generate a small batch-file wrapper so stdout/stderr land in tracker.log,
+# since New-ScheduledTaskAction has no native output-redirection option.
+# Task Scheduler's -Execute points directly at this file, so there is no
+# argument-string quoting/escaping to get right at registration time; the
+# batch file's own single line is parsed by cmd.exe normally, exactly like
+# any other command line.
+$wrapperPath = Join-Path $logDir "run-collect.cmd"
+@"
+@echo off
+"$exe" $argument >> "$logPath" 2>&1
+"@ | Set-Content -Path $wrapperPath -Encoding ASCII
+
 $action = New-ScheduledTaskAction `
-    -Execute $exe `
-    -Argument $argument `
+    -Execute $wrapperPath `
     -WorkingDirectory $workDir
 
 # Run daily at 11:50 PM
@@ -64,8 +82,9 @@ Register-ScheduledTask `
     -Force | Out-Null
 
 Write-Host ""
-Write-Host "✔ Task registered: $taskName"
+Write-Host "Task registered: $taskName"
 Write-Host "  Runs daily at 23:50 | lookback 1 day | db -> $dbHint"
+Write-Host "  Log: $logPath"
 Write-Host ""
 Write-Host "Useful commands:"
 Write-Host "  Start now  : Start-ScheduledTask -TaskName '$taskName'"
