@@ -42,6 +42,10 @@ def test_regex_does_not_misfire_on_non_date_suffix():
     assert normalize_model("o1-preview", "copilot_cli") == "o1-preview"
 
 
+def test_alias_lookup_applies_after_stripping_date_suffix():
+    assert normalize_model("claude-sonnet-4.5-20250929", "copilot_cli") == "claude-sonnet-4-5"
+
+
 def test_load_aliases_returns_empty_dict_when_file_missing():
     with patch("src.model_normalize._ALIASES_PATH", Path("/nonexistent/model_aliases.toml")):
         assert _load_aliases() == {}

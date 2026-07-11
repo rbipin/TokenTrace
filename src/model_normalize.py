@@ -29,8 +29,8 @@ def normalize_model(raw: str, source: str) -> str:
 
     Applied in order:
     1. Strip trailing -YYYYMMDD date suffix (regex)
-    2. Look up (source, raw) in alias table
-    3. Passthrough unchanged
+    2. Look up (source, stripped) in alias table
+    3. Passthrough the stripped name unchanged
 
     Args:
         raw: Raw model name as reported by source
@@ -39,15 +39,13 @@ def normalize_model(raw: str, source: str) -> str:
     Returns:
         Canonical model name
     """
-    # Step 1: Try to strip date suffix
+    # Step 1: Strip date suffix, if present
     match = _DATE_SUFFIX_PATTERN.match(raw)
-    if match:
-        return match.group(1)
+    stripped = match.group(1) if match else raw
 
-    # Step 2: Try alias lookup
-    if source in _ALIASES:
-        if raw in _ALIASES[source]:
-            return _ALIASES[source][raw]
+    # Step 2: Try alias lookup on the (possibly stripped) name
+    if source in _ALIASES and stripped in _ALIASES[source]:
+        return _ALIASES[source][stripped]
 
     # Step 3: Passthrough
-    return raw
+    return stripped
