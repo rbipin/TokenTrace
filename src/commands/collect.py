@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from src.collectors import ClaudeCliCollector, CopilotCliCollector
-from src.commands.common import load_remote_stores
+from src.commands.common import load_remote_stores, run_sync
 from src.config import Config
 from src.middleware import ModelNormalizeMiddleware
 from src.pipeline import TrackerPipeline
@@ -86,6 +86,12 @@ class CollectCommand:
             print(f"Warning: {err}", file=sys.stderr)
         for err in result.stores_failed:
             print(f"Warning [store]: {err}", file=sys.stderr)
+
+        if len(stores) > 1:
+            sync_result = run_sync(stores[0], stores[1:], dry_run=False)
+            for store_name, info in sync_result.items():
+                if info.get("pushed"):
+                    print(f"Synced {info['pushed']} pending record(s) to {store_name}")
 
         print(
             f"Collected {result.records_written} session records "
