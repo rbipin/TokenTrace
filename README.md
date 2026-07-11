@@ -131,27 +131,43 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture: coll
 ## Project Structure
 
 ```
-ai-token/
-├─ pyproject.toml            # packaging — pip/pipx/uv entry point
-├─ tracker.py                # CLI entry (collect / report / config / sync / projects)
+TokenTracer/
+├─ pyproject.toml            # packaging — pip/pipx/uv entry point, tokentracer.stores entry points
+├─ tracker.py                # CLI entry — builds argparse from the command registry and dispatches
 ├─ src/
-│  ├─ models.py             # SessionRecord (frozen dataclass) + merge
-│  ├─ project_identity.py   # Tri-state project naming + local-only cwd→guid→whimsical identities
-│  ├─ collectors/           # one collector per AI tool surface
+│  ├─ commands/              # Command pattern + static registry, one module per subcommand
+│  │  ├─ base.py            # Command protocol (name, help, configure(parser), run(args) -> int)
+│  │  ├─ __init__.py        # COMMANDS registry list
+│  │  ├─ collect.py         # CollectCommand (+ _build_pipeline / _build_stores helpers)
+│  │  ├─ report.py          # ReportCommand
+│  │  ├─ config.py          # ConfigCommand (owns its own set sub-dispatch)
+│  │  ├─ projects.py        # ProjectsCommand
+│  │  ├─ sync.py            # SyncCommand (+ _run_sync core logic)
+│  │  └─ common.py          # load_remote_stores helper shared by collect/sync
+│  ├─ models.py              # SessionRecord (frozen dataclass, has canonical_model) + merge_records
+│  ├─ middleware/            # Pluggable RecordMiddleware chain (Pipes-and-Filters)
+│  │  ├─ base.py            # RecordMiddleware protocol (name, applies, process)
+│  │  └─ model_normalize.py # ModelNormalizeMiddleware — sets canonical_model via normalize_model()
+│  ├─ model_normalize.py     # normalize_model(raw, source): strip date suffix -> alias lookup -> passthrough
+│  ├─ model_aliases.toml     # Static alias table, keyed by [source] then raw model string
+│  ├─ project_identity.py    # ProjectIdentityStore (local-only project-key→guid→whimsical) + ProjectNameResolver
+│  ├─ repo_identity.py       # resolve_repo_slug(cwd) — walks up to .git, parses origin remote
+│  ├─ collectors/            # one collector per AI tool surface
 │  │  ├─ base.py            # ActivityCollector protocol + to_date / to_local_iso helpers
 │  │  ├─ copilot_cli.py     # Copilot CLI — one record per (session, model)
 │  │  └─ claude_cli.py      # Claude Code CLI — one record per JSONL session
-│  ├─ whimsy/               # Standalone docker-style masked-name generator (extractable, stdlib-only)
-│  ├─ stores/               # pluggable store backends (entry-point registry)
+│  ├─ whimsy/                # Standalone docker-style masked-name generator (extractable, stdlib-only)
+│  ├─ stores/                # pluggable store backends (entry-point registry)
 │  │  ├─ __init__.py        # SessionStore protocol
 │  │  ├─ registry.py        # store discovery + instantiation (env var expansion)
 │  │  ├─ sqlite.py          # SqliteStore — local db, idempotent upsert, sync tracking
 │  │  └─ supabase.py        # SupabaseStore — remote Supabase sink
-│  ├─ report.py             # UsageReporter (day/month/year, cache efficiency, --summary, --by-project, --detailed)
-│  ├─ pipeline.py           # fluent TrackerPipeline
-│  └─ config.py             # Paths, TOML loading, write_toml_setting
-├─ tests/                   # pytest suite with fixtures
-└─ docs/                    # design docs and implementation plans
+│  ├─ report.py              # UsageReporter (day/month/year, cache efficiency, --summary, --by-project, --detailed)
+│  ├─ pipeline.py            # fluent TrackerPipeline — parallel collectors, .middlewares() chain
+│  ├─ config.py              # Paths, TOML loading, write_toml_setting
+│  └─ store.py               # deprecated alias for SqliteStore (backward compat)
+├─ tests/                    # pytest suite with fixtures
+└─ docs/                     # design docs, ARCHITECTURE.md, DESIGN-HISTORY.md, implementation plans
 ```
 
 ---
