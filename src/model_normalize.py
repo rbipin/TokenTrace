@@ -5,18 +5,22 @@ import tomllib
 from pathlib import Path
 
 
-_ALIASES_PATH = Path(__file__).parent / "model_aliases.toml"
+_BUNDLED_ALIASES_PATH = Path(__file__).parent / "model_aliases.toml"
+_USER_ALIASES_PATH = Path.home() / ".tokentracer" / "model_aliases.toml"
 
 
 def _load_aliases() -> dict[str, dict[str, str]]:
-    """Load model aliases from the TOML file.
+    """Load model aliases from the user's TOML file, falling back to the bundled one.
 
-    Degrades gracefully to an empty alias table when the file is missing,
-    so a missing/malformed alias TOML doesn't crash CLI startup.
+    ~/.tokentracer/model_aliases.toml (if present) takes precedence, so users can
+    add/override aliases without waiting on a package release. Degrades gracefully
+    to an empty alias table when neither file is present, so a missing/malformed
+    alias TOML doesn't crash CLI startup.
     """
-    if not _ALIASES_PATH.exists():
+    path = _USER_ALIASES_PATH if _USER_ALIASES_PATH.exists() else _BUNDLED_ALIASES_PATH
+    if not path.exists():
         return {}
-    with open(_ALIASES_PATH, "rb") as f:
+    with open(path, "rb") as f:
         return tomllib.load(f)
 
 
