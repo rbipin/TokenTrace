@@ -16,6 +16,7 @@ if ($tokentracer) {
     $argument = "collect --lookback 1"
     $workDir  = $HOME
     $dbHint   = "$HOME\.tokentracer\usage.db"
+    $logDir   = "$HOME\.tokentracer"
     Write-Host "Using packaged tokentracer: $exe"
 } else {
     # Repo checkout: run tracker.py next to this script with python on PATH
@@ -34,13 +35,22 @@ if ($tokentracer) {
     $argument = "`"$scriptPath`" collect --lookback 1"
     $workDir  = $PSScriptRoot
     $dbHint   = "$PSScriptRoot\usage.db"
+    $logDir   = $PSScriptRoot
     Write-Host "Using repo checkout: $scriptPath (python: $exe)"
 }
 
+if (-not (Test-Path $logDir)) {
+    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+}
+$logPath = Join-Path $logDir "tracker.log"
+
 # -- Build task components -------------------------------------------------
+# Wrapped in cmd.exe so stdout/stderr land in tracker.log, since
+# New-ScheduledTaskAction has no native output-redirection option.
+$wrappedArgument = "/c `"$exe $argument >> `"$logPath`" 2>&1`""
 $action = New-ScheduledTaskAction `
-    -Execute $exe `
-    -Argument $argument `
+    -Execute "cmd.exe" `
+    -Argument $wrappedArgument `
     -WorkingDirectory $workDir
 
 # Run daily at 11:50 PM
@@ -64,8 +74,9 @@ Register-ScheduledTask `
     -Force | Out-Null
 
 Write-Host ""
-Write-Host "✔ Task registered: $taskName"
+Write-Host "Task registered: $taskName"
 Write-Host "  Runs daily at 23:50 | lookback 1 day | db -> $dbHint"
+Write-Host "  Log: $logPath"
 Write-Host ""
 Write-Host "Useful commands:"
 Write-Host "  Start now  : Start-ScheduledTask -TaskName '$taskName'"
