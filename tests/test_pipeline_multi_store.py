@@ -81,3 +81,29 @@ def test_store_alias_still_works(tmp_path):
         .run()
     )
     assert result.records_written == 1
+
+
+def test_successful_remote_push_marks_synced(tmp_path):
+    sqlite = SqliteStore(tmp_path / "usage.db")
+    remote = _StubStore("remote_a")
+    col = _StubCollector("claude_cli", [_rec("s1")])
+    (
+        TrackerPipeline().add(col)
+        .since(date(2026, 1, 1))
+        .stores(sqlite, remote)
+        .run()
+    )
+    assert sqlite.unsynced_for("remote_a") == []
+
+
+def test_failed_remote_push_leaves_unsynced(tmp_path):
+    sqlite = SqliteStore(tmp_path / "usage.db")
+    bad_remote = _StubStore("remote_bad", boom=True)
+    col = _StubCollector("claude_cli", [_rec("s1")])
+    (
+        TrackerPipeline().add(col)
+        .since(date(2026, 1, 1))
+        .stores(sqlite, bad_remote)
+        .run()
+    )
+    assert len(sqlite.unsynced_for("remote_bad")) == 1

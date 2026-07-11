@@ -114,6 +114,8 @@ class TrackerPipeline:
             try:
                 store.upsert(merged)
                 store.close()
+                if hasattr(self._stores[0], "mark_synced"):
+                    self._stores[0].mark_synced(merged, store.name)
                 return None
             except Exception as exc:
                 return f"{store.name}: {exc}"
