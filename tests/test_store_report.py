@@ -228,7 +228,7 @@ def test_detailed_flag_dumps_all_rows_all_columns(tmp_db):
     assert "s-old" in out
     assert "s-new" in out
     # all columns, including context and sync status
-    for header in ("Session", "Source", "Model", "Date", "Start", "End",
+    for header in ("Session", "Source", "Model", "Canonical", "Date", "Start", "End",
                    "Project", "Turns", "Tools", "Input", "Output",
                    "CacheCreate", "CacheRead", "CtxPeak", "Reasoning",
                    "Context", "Synced"):
@@ -262,3 +262,76 @@ def test_detailed_takes_precedence_and_ignores_period(tmp_db):
     )
     assert "s-prec" in out      # 2020 row shown despite period="day"
     assert "Synced" in out      # full-dump headers, not summary/by-project
+
+
+def test_period_summary_merges_dated_and_alias_model_variants(tmp_db):
+    store = UsageStore(tmp_db)
+    store.upsert([
+        SessionRecord(
+            session_id="s1", source="claude_cli", model="claude-haiku-4-5-20251001",
+            canonical_model="claude-haiku-4-5", date="2026-07-01", turns=3,
+            input_tokens=100, output_tokens=10,
+        ),
+        SessionRecord(
+            session_id="s2", source="claude_cli", model="claude-haiku-4-5",
+            canonical_model="claude-haiku-4-5", date="2026-07-01", turns=2,
+            input_tokens=50, output_tokens=5,
+        ),
+    ])
+    reporter = UsageReporter(tmp_db)
+    output = reporter.report(period="month", summary=True, as_json=True)
+    import json as _json
+    rows = _json.loads(output)["rows"]
+    assert len(rows) == 1
+    assert rows[0]["model"] == "claude-haiku-4-5"
+    assert rows[0]["turns"] == 5
+
+
+def test_model_filter_matches_canonical_model(tmp_db):
+    store = UsageStore(tmp_db)
+    today = date.today().isoformat()
+    store.upsert([
+        SessionRecord(
+            session_id="s1", source="claude_cli", model="claude-haiku-4-5-20251001",
+            canonical_model="claude-haiku-4-5", date=today, turns=1,
+        ),
+        SessionRecord(
+            session_id="s2", source="claude_cli", model="claude-sonnet-4-6",
+            canonical_model="claude-sonnet-4-6", date=today, turns=1,
+        ),
+    ])
+    reporter = UsageReporter(tmp_db)
+    output = reporter.report(period="day", models=["claude-haiku-4-5"], as_json=True)
+    import json as _json
+    rows = _json.loads(output)["rows"]
+    assert len(rows) == 1
+    assert rows[0]["model"] == "claude-haiku-4-5"
+
+
+def test_model_filter_falls_back_to_raw_model_when_canonical_unset(tmp_db):
+    # Rows written before this feature shipped have canonical_model = NULL;
+    # filtering must still work against the raw model in that case.
+    store = UsageStore(tmp_db)
+    today = date.today().isoformat()
+    store.upsert([_rec("s1", date_str=today, model="model-a"),
+                  _rec("s2", date_str=today, model="model-b")])
+    reporter = UsageReporter(tmp_db)
+    output = reporter.report(period="day", models=["model-a"], as_json=True)
+    import json as _json
+    rows = _json.loads(output)["rows"]
+    assert len(rows) == 1
+    assert rows[0]["model"] == "model-a"
+
+
+def test_detailed_view_shows_raw_and_canonical_model(tmp_db):
+    store = UsageStore(tmp_db)
+    store.upsert([
+        SessionRecord(
+            session_id="s1", source="claude_cli", model="claude-haiku-4-5-20251001",
+            canonical_model="claude-haiku-4-5", date="2026-07-01", turns=1,
+        ),
+    ])
+    out = UsageReporter(tmp_db).report(detailed=True)
+    assert "claude-haiku-4-5-20251001" in out
+    assert "claude-haiku-4-5" in out
+    assert "Canonical" in out

@@ -14,8 +14,8 @@ try:
 except ImportError:
     tomllib = None  # type: ignore[assignment]
 
-_TOML_PATH = Path.home() / ".tokentracer.toml"
-_ENV_FILE_PATH = Path.home() / ".tokentracer.env"
+_TOML_PATH = Path.home() / ".tokentracer" / ".tokentracer.toml"
+_ENV_FILE_PATH = Path.home() / ".tokentracer" / ".tokentracer.env"
 
 
 def _load_env_file(path: Path | None = None) -> dict[str, str]:
@@ -48,7 +48,7 @@ def _load_env_file(path: Path | None = None) -> dict[str, str]:
 def _expand_env_vars(params: dict) -> dict:
     """Expand ${VAR} placeholders in params dict values.
 
-    Lookup order: os.environ first, then ~/.tokentracer.env.
+    Lookup order: os.environ first, then ~/.tokentracer/.tokentracer.env.
 
     Args:
         params: Dictionary with string and non-string values.
@@ -111,7 +111,7 @@ class Config:
 
     @classmethod
     def load(cls, **overrides) -> "Config":
-        """Load from ~/.tokentracer.toml, then apply keyword overrides."""
+        """Load from ~/.tokentracer/.tokentracer.toml, then apply keyword overrides."""
         base: dict = {}
         if tomllib is not None and _TOML_PATH.exists():
             try:
@@ -125,7 +125,7 @@ class Config:
                     else:
                         print(
                             f"Warning: invalid track_project_names {raw_mode!r} "
-                            f"in ~/.tokentracer.toml; expected one of "
+                            f"in ~/.tokentracer/.tokentracer.toml; expected one of "
                             f"{', '.join(PROJECT_NAME_MODES)} — using 'no'",
                             file=sys.stderr,
                         )
@@ -145,7 +145,7 @@ class Config:
                     remote.append(StoreConfig(name=store_name, class_path=class_path, params=params))
                 base["remote_stores"] = tuple(remote)
             except Exception as exc:
-                print(f"Warning: could not parse ~/.tokentracer.toml: {exc}", file=sys.stderr)
+                print(f"Warning: could not parse ~/.tokentracer/.tokentracer.toml: {exc}", file=sys.stderr)
         base.update(overrides)
         if "track_project_names" in base:
             raw_mode = base["track_project_names"]
@@ -165,7 +165,8 @@ def _format_toml_value(value: bool | str) -> str:
 
 
 def write_toml_setting(key: str, value: bool | str) -> None:
-    """Merge one [tracking] key into ~/.tokentracer.toml."""
+    """Merge one [tracking] key into ~/.tokentracer/.tokentracer.toml."""
+    _TOML_PATH.parent.mkdir(parents=True, exist_ok=True)
     if tomllib is not None:
         _write_toml_311(key, value)
     else:

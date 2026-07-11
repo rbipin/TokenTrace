@@ -74,7 +74,12 @@ src/
     projects.py          ProjectsCommand
     sync.py              SyncCommand (+ _run_sync core logic)
     common.py            load_remote_stores helper shared by collect/sync
-  models.py              SessionRecord frozen dataclass; merge_records deduplicates by (session_id, source, model)
+  models.py              SessionRecord frozen dataclass (has canonical_model field); merge_records deduplicates by (session_id, source, model)
+  middleware/            Pluggable RecordMiddleware chain (Pipes-and-Filters), run in TrackerPipeline.run() after merge_records, before upsert
+    base.py              RecordMiddleware Protocol: name, applies(records) -> bool, process(records) -> list[SessionRecord]
+    model_normalize.py   ModelNormalizeMiddleware — always applies; sets canonical_model via normalize_model()
+  model_normalize.py     normalize_model(raw, source): strip -YYYYMMDD suffix -> alias lookup in model_aliases.toml -> passthrough
+  model_aliases.toml     Static alias table, keyed by [source] then raw model string -> canonical name
   project_identity.py    ProjectIdentityStore (local-only project-key→guid→whimsical table; keys are repo slugs or folder names, never full paths) + ProjectNameResolver (tri-state naming policy)
   repo_identity.py       resolve_repo_slug(cwd): walks up to .git, parses origin remote from config -> owner/repo (read-only, cached, never raises)
   collectors/
@@ -88,12 +93,12 @@ src/
     sqlite.py            SqliteStore — local SQLite sink; sessions table, idempotent upsert, sync tracking
     supabase.py          SupabaseStore — remote sink; upserts into a Supabase token_sessions table
   store.py               Deprecated alias for SqliteStore (kept for backward compat)
-  pipeline.py            Fluent TrackerPipeline; runs collectors in parallel via ThreadPoolExecutor
+  pipeline.py            Fluent TrackerPipeline; runs collectors in parallel via ThreadPoolExecutor; .middlewares(*mw) registers the RecordMiddleware chain run in run()
   config.py              Paths, TOML loading (Config.load()), write_toml_setting(), _expand_env_vars()
   report.py              UsageReporter: all/day/month/year periods, cache efficiency header, default detailed session view includes Reasoning, CtxPeak, and Tools columns, --summary, --by-project, --detailed (all rows + all columns + Synced from sync_log)
 ```
 
-**Data flow**: `Collector.collect(since)` → `List[SessionRecord]` → `merge_records` deduplicates → `UsageStore.upsert` writes SQLite → `UsageReporter.report` aggregates for display.
+**Data flow**: `Collector.collect(since)` → `List[SessionRecord]` → `merge_records` deduplicates → RecordMiddleware chain transforms (e.g. `ModelNormalizeMiddleware` sets `canonical_model`) → `UsageStore.upsert` writes SQLite → `UsageReporter.report` aggregates for display.
 
 **Key invariants**:
 - `collect` is always idempotent — re-running overwrites existing session rows. Merge key is `(session_id, source, model)`.
@@ -102,7 +107,7 @@ src/
 
 **UsageStore schema**: `sessions` table with PRIMARY KEY `(session_id, source, model)`. On first connect, if an old `usage` / `daily_activity` table exists it is dropped with a warning and the user is asked to re-collect. A separate local-only `project_identities` table stores normalized project key → guid → whimsical-name mappings and is never queried by sync code.
 
-**Config file**: `~/.tokentracer.toml`. `[tracking]` supports `track_project_names` as a string enum: `"yes"` (real name), `"no"` (stable 12-hex guid per project (repo slug or folder name); default), or `"whimsical"` (stable docker-style masked name). Project identity is keyed by git repo slug (`owner/repo` — from the Copilot session `repository` column, or by reading `<cwd>/.git/config` origin remote for Claude sessions), falling back to the cwd folder name; full paths are never stored. Two clones of the same repo therefore map to one project. `yes` mode displays the full slug (e.g. `rbipin/TokenTrace`). `tracker.py config set track_project_names <value>` validates against that enum; invalid or legacy boolean TOML values warn and fall back to `"no"`. The `collect` CLI overrides it per run with `--project-mode <yes|no|whimsical>`. `[tracking]` also supports `context` (string, default `"personal"`) — a usage-context label (e.g. `"work"`) stamped on every collected `SessionRecord` via `TrackerPipeline.context()` and stored in the `context` column of the `sessions` table (and pushed to remote stores); CLI flag `--context <label>` on `collect` overrides it per run. `[stores.<name>]` sections declare remote stores (see below); `${VAR}` placeholders in string values are expanded at instantiation time — lookup order is `os.environ` first, then `~/.tokentracer.env` (simple `KEY=VALUE` file, `#` comments, optional quotes). Missing vars raise `ValueError`.
+**Config file**: `~/.tokentracer/.tokentracer.toml`. `[tracking]` supports `track_project_names` as a string enum: `"yes"` (real name), `"no"` (stable 12-hex guid per project (repo slug or folder name); default), or `"whimsical"` (stable docker-style masked name). Project identity is keyed by git repo slug (`owner/repo` — from the Copilot session `repository` column, or by reading `<cwd>/.git/config` origin remote for Claude sessions), falling back to the cwd folder name; full paths are never stored. Two clones of the same repo therefore map to one project. `yes` mode displays the full slug (e.g. `rbipin/TokenTrace`). `tracker.py config set track_project_names <value>` validates against that enum; invalid or legacy boolean TOML values warn and fall back to `"no"`. The `collect` CLI overrides it per run with `--project-mode <yes|no|whimsical>`. `[tracking]` also supports `context` (string, default `"personal"`) — a usage-context label (e.g. `"work"`) stamped on every collected `SessionRecord` via `TrackerPipeline.context()` and stored in the `context` column of the `sessions` table (and pushed to remote stores); CLI flag `--context <label>` on `collect` overrides it per run. `[stores.<name>]` sections declare remote stores (see below); `${VAR}` placeholders in string values are expanded at instantiation time — lookup order is `os.environ` first, then `~/.tokentracer/.tokentracer.env` (simple `KEY=VALUE` file, `#` comments, optional quotes). Missing vars raise `ValueError`.
 
 ## Stores registry (remote sinks)
 
@@ -110,7 +115,7 @@ Stores implement the `SessionStore` Protocol in `src/stores/__init__.py` (`name:
 
 - **Discovery**: `load_store_registry()` in `src/stores/registry.py` discovers stores via the `tokentracer.stores` entry-point group (declared in `pyproject.toml`). When the package isn't installed (repo checkout), it falls back to the built-ins: `sqlite` and `supabase`.
 - **Instantiation**: `instantiate_store(name, params, class_path=None)` expands `${VAR}` env placeholders in `params`, then constructs the store — via `class_path` (dotted import path, bypasses the registry) if given, else by registry name.
-- **Sync flow**: `tracker.py sync` reads `[stores.*]` from `~/.tokentracer.toml`, and for each remote store pushes rows the SqliteStore reports as unsynced (`unsynced_for(store_name)`), then marks them synced per store. `--dry-run` prints pending counts only. Failed stores are reported without blocking others; stores are always closed in a `finally`.
+- **Sync flow**: `tracker.py sync` reads `[stores.*]` from `~/.tokentracer/.tokentracer.toml`, and for each remote store pushes rows the SqliteStore reports as unsynced (`unsynced_for(store_name)`), then marks them synced per store. `--dry-run` prints pending counts only. Failed stores are reported without blocking others; stores are always closed in a `finally`.
 
 **Built-in remote store — Supabase** (`src/stores/supabase.py`): upserts rows into a `token_sessions` table with `on_conflict="session_id,source,model"` (mirrors the local primary key). Lazy client creation on first upsert; requires optional dep `supabase>=2.0` (`pip install tokentracer[supabase]`). The upserted payload includes `tool_calls`, `reasoning_tokens`, and `context_peak_tokens`; the remote `token_sessions` table must have those bigint columns. Configure with:
 
@@ -127,7 +132,7 @@ table = "token_sessions"     # optional, this is the default
 2. Register it under `[project.entry-points."tokentracer.stores"]` in `pyproject.toml` (and add it to the built-in fallback in `registry.py` if it ships with this repo).
 3. Add any third-party dep as an optional extra in `[project.optional-dependencies]`.
 4. Add tests under `tests/` mocking the client (see `tests/test_supabase_store.py`).
-5. Users enable it with a `[stores.<name>]` section in `~/.tokentracer.toml`; external packages can also provide stores via the same entry-point group — no code changes here needed.
+5. Users enable it with a `[stores.<name>]` section in `~/.tokentracer/.tokentracer.toml`; external packages can also provide stores via the same entry-point group — no code changes here needed.
 
 **Copilot CLI data details**: newer CLI versions nest event payloads under a `data` key and use `created_at`/`updated_at` session columns (older: `startedAt`/`endedAt`) — the collector supports both. Completed sessions write a `session.shutdown` event with `modelMetrics` (per-model token breakdown; counts flat in old format, under `usage` + `requests.count` in new). Active sessions fall back to summing `outputTokens` from `assistant.message` events (new format exposes only output tokens there; full input/cache counts arrive at shutdown). Each `(session_id, model)` pair becomes one `SessionRecord`. `tool.execution_complete` events are counted into `tool_calls`, attributed per model via each event's `model` field when a shutdown event exists, and summed to the single detected model otherwise; the event scan no longer stops at `session.shutdown`. `context_peak_tokens` is computed by a bulk `MAX(input_tokens + output_tokens)` query over the `assistant_usage_events` table in `session-store.db` with `agent_id IS NULL` (`input_tokens` is cache-inclusive); if the table is absent, `context_peak_tokens` defaults to `0` without warning.
 
@@ -146,3 +151,12 @@ table = "token_sessions"     # optional, this is the default
 5. Add tests under `tests/` using `tmp_path` to create fixture files.
 
 Nothing else needs to change.
+
+## Adding a new middleware
+
+1. Implement `RecordMiddleware` (`src/middleware/base.py`): `name: str`, `applies(records) -> bool`, `process(records) -> list[SessionRecord]`.
+2. Register it via `.middlewares(...)` on the `TrackerPipeline` where it's built — currently `_build_pipeline()` in `src/commands/collect.py`. Middlewares run in registration order; each one's `applies()` gates whether its `process()` runs.
+3. `SessionRecord` is a **frozen dataclass** — `process()` must return new records built with `dataclasses.replace()`, never mutate in place.
+4. Add tests under `tests/` covering both `applies()` and `process()`.
+
+See `docs/ARCHITECTURE.md#middleware` for the full design (Pipes-and-Filters) and `ModelNormalizeMiddleware` as the worked example.

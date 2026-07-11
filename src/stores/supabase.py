@@ -45,6 +45,7 @@ class SupabaseStore:
                 "session_id": r.session_id,
                 "source": r.source,
                 "model": r.model,
+                "canonical_model": r.canonical_model,
                 "date": r.date,
                 "start_ts": r.start_ts,
                 "end_ts": r.end_ts,

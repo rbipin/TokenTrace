@@ -4,7 +4,16 @@ from pathlib import Path
 
 import pytest
 
+from src import config
 from src.config import Config, write_toml_setting
+
+
+def test_toml_path_lives_inside_tokentracer_folder():
+    assert config._TOML_PATH == Path.home() / ".tokentracer" / ".tokentracer.toml"
+
+
+def test_env_file_path_lives_inside_tokentracer_folder():
+    assert config._ENV_FILE_PATH == Path.home() / ".tokentracer" / ".tokentracer.env"
 
 
 def test_default_track_project_names_is_no():
@@ -77,6 +86,15 @@ def test_write_toml_setting_creates_file(tmp_path, monkeypatch):
     assert toml.exists()
     content = toml.read_text()
     assert 'track_project_names = "whimsical"' in content
+
+
+def test_write_toml_setting_creates_parent_dir_when_missing(tmp_path, monkeypatch):
+    toml = tmp_path / ".tokentracer" / ".tokentracer.toml"
+    monkeypatch.setattr("src.config._TOML_PATH", toml)
+    assert not toml.parent.exists()
+    write_toml_setting("track_project_names", "whimsical")
+    assert toml.exists()
+    assert 'track_project_names = "whimsical"' in toml.read_text()
 
 
 def test_write_toml_setting_updates_existing(tmp_path, monkeypatch):

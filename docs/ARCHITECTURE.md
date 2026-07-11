@@ -1,19 +1,33 @@
-# TokenTracer Architecture
+<h1 align="center">Token Tracer Architecture</h1>
 
 This document describes how TokenTracer works end to end: how token usage is
-collected, where the data comes from, how it is stored, reported, and synced.
-The audience is contributors — file paths, protocols, and extension points are
-included throughout.
+collected, where the data comes from, how it is stored, transformed, reported,
+and synced. The audience is contributors — file paths, protocols, and
+extension points are included throughout.
+
+- [Overview](#overview)
+- [Collect flow](#collect-flow)
+- [Data sources](#data-sources)
+- [Middleware](#middleware)
+- [Storage](#storage)
+- [Report flow](#report-flow)
+- [Configuration](#configuration)
+- [Sync and the stores registry](#sync-and-the-stores-registry)
+- [Extending](#extending)
+
+---
 
 ## Overview
 
 TokenTracer is a local-first pipeline. **Collectors** read session artifacts
 that AI CLIs already write to disk, normalize them into `SessionRecord`s, and
-a **pipeline** deduplicates and writes them to **stores** (always a local
-SQLite database, optionally remote sinks such as Supabase). The **reporter**
-aggregates the local database for display. The design is Open/Closed: adding a
-new data source or a new sink requires implementing one protocol and
-registering it — no other module changes.
+a **pipeline** deduplicates them, runs them through an ordered **middleware**
+chain (e.g. model-name normalization), and writes them to **stores** (always
+a local SQLite database, optionally remote sinks such as Supabase). The
+**reporter** aggregates the local database for display. The design is
+Open/Closed: adding a new data source, a new middleware, or a new sink
+requires implementing one protocol and registering it — no other module
+changes.
 
 ```mermaid
 flowchart LR
@@ -30,6 +44,7 @@ flowchart LR
     PR["ProjectNameResolver<br/>src/project_identity.py"]
     PI[("project_identities<br/>usage.db, local-only")]
     P["TrackerPipeline<br/>src/pipeline.py"]
+    MW["Middleware chain<br/>src/middleware/"]
 
     subgraph Stores["src/stores/"]
         S1[("SqliteStore<br/>usage.db")]
@@ -47,8 +62,9 @@ flowchart LR
     PR --> C2
     C1 --> P
     C2 --> P
-    P --> S1
-    P --> S2
+    P --> MW
+    MW --> S1
+    MW --> S2
     S1 --> R
 ```
 
@@ -58,12 +74,17 @@ flowchart LR
 | `src/commands/` | `Command` protocol + static `COMMANDS` registry; one module per subcommand (`collect`, `report`, `config`, `projects`, `sync`) |
 | `src/models.py` | `SessionRecord` frozen dataclass; `merge_records` dedupe |
 | `src/collectors/` | Read-only source adapters (`ActivityCollector` protocol) |
-| `src/pipeline.py` | Fluent `TrackerPipeline`; parallel collection, fan-out to stores |
+| `src/pipeline.py` | Fluent `TrackerPipeline`; parallel collection, middleware chain, fan-out to stores |
 | `src/project_identity.py` | `ProjectNameResolver` tri-state naming policy + `ProjectIdentityStore` |
+| `src/middleware/` | `RecordMiddleware` protocol + `ModelNormalizeMiddleware` (Pipes-and-Filters record transforms) |
+| `src/model_normalize.py` | `normalize_model()` — date-suffix strip + alias table lookup |
+| `src/model_aliases.toml` | Static cross-vendor `(source, raw) -> canonical` alias table |
 | `src/stores/` | `SessionStore` protocol, SQLite + Supabase implementations, registry |
 | `src/report.py` | `UsageReporter`: aggregation and table rendering |
-| `src/config.py` | Paths, `~/.tokentracer.toml` loading, `${VAR}` expansion |
+| `src/config.py` | Paths, `~/.tokentracer/.tokentracer.toml` loading, `${VAR}` expansion |
 | `src/whimsy/` | Standalone stdlib-only `generate_name()` package for masked project names |
+
+---
 
 ## Collect flow
 
@@ -77,10 +98,11 @@ sequenceDiagram
     participant CL as ClaudeCliCollector
     participant PR as ProjectNameResolver
     participant PI as ProjectIdentityStore
+    participant MW as Middleware chain
     participant SQ as SqliteStore
     participant RM as Remote stores
 
-    CLI->>P: .context(label).add(collectors).since(today - lookback).stores(...).run()
+    CLI->>P: .context(label).add(collectors).middlewares(...).since(today - lookback).stores(...).run()
     par ThreadPoolExecutor
         P->>CC: collect(since)
         CC->>PR: resolve(display_name, cwd)
@@ -98,6 +120,8 @@ sequenceDiagram
     end
     P->>P: merge_records() — dedupe by (session_id, source, model)
     P->>P: stamp context label on every record
+    P->>MW: for each middleware: applies(records)? -> process(records)
+    MW-->>P: transformed records
     P->>SQ: upsert(records)  — must succeed, errors propagate
     P->>RM: upsert(records)  — parallel, log-and-continue
     P-->>CLI: RunResult(records_written, errors, stores_failed)
@@ -113,6 +137,9 @@ Key invariants:
   warning; other collectors still run. The local SQLite write must succeed;
   remote store failures are logged without blocking.
 - The lookback window defaults to 3 days (`--lookback N` to backfill).
+- **Middleware runs after merge, before persistence** — each registered
+  middleware's `applies()` gates whether its `process()` runs; middlewares
+  chain in registration order. See [Middleware](#middleware).
 
 `ProjectNameResolver` applies the shared tri-state naming policy before a
 record reaches the pipeline. Collectors pass source-specific `(display_name,
@@ -122,12 +149,17 @@ stable docker-style masked name tied to that same guid.
 
 ### The record model
 
-`SessionRecord` (`src/models.py`) is a frozen dataclass — one row per
-`(session_id, source, model)`. Fields: `date`, `start_ts`, `end_ts`,
+`SessionRecord` (`src/models.py`) is a **frozen dataclass** — one row per
+`(session_id, source, model)`. Because it's frozen, nothing may mutate a
+record in place; transforms (including middleware `process()`) must build a
+new instance with `dataclasses.replace()`. Fields: `date`, `start_ts`, `end_ts`,
 `project`, `turns`, `tool_calls`, `input_tokens`, `output_tokens`,
 `cache_creation_tokens`, `cache_read_tokens`, `context_peak_tokens`,
-`reasoning_tokens`, and `context` (the usage-context label, e.g.
-`"work"`/`"personal"`).
+`reasoning_tokens`, `context` (the usage-context label, e.g.
+`"work"`/`"personal"`), and `canonical_model` (nullable; populated by
+`ModelNormalizeMiddleware` — see [Middleware](#middleware)).
+
+---
 
 ## Data sources
 
@@ -293,6 +325,108 @@ Key properties:
 - Re-running `collect --lookback N` backfills peaks for sessions whose
   source files still exist.
 
+---
+
+## Middleware
+
+Different AI CLI harnesses report model identifiers inconsistently — the same
+underlying model can show up as `claude-sonnet-4.5` from one source and
+`claude-sonnet-4-5-20260101` from another. Rather than special-casing this in
+every collector, TokenTracer normalizes model names in a dedicated stage that
+runs **after `merge_records()` and before the SQLite upsert**, using a
+**Pipes-and-Filters** pattern: an ordered chain of small, independent
+transforms (filters) that each take the record list, decide whether they
+apply, and hand back a (possibly modified) record list to the next stage.
+
+### The `RecordMiddleware` protocol
+
+Defined in `src/middleware/base.py`:
+
+```python
+class RecordMiddleware(Protocol):
+    name: str
+
+    def applies(self, records: list[SessionRecord]) -> bool: ...
+    def process(self, records: list[SessionRecord]) -> list[SessionRecord]: ...
+```
+
+- `name` — a short identifier for the middleware.
+- `applies(records)` — a cheap guard checked before `process()` runs.
+- `process(records)` — returns the transformed record list.
+
+### Wiring into `TrackerPipeline`
+
+`TrackerPipeline.middlewares(*mw)` (`src/pipeline.py`) registers the chain.
+Inside `run()`, after `merge_records()` and the context-label stamp, each
+registered middleware runs in registration order:
+
+```python
+for mw in self._middlewares:
+    if mw.applies(merged):
+        merged = mw.process(merged)
+```
+
+**Guarantee**: `process()` is only ever called when `applies()` returns
+`True` for the current record list — a middleware can never see `process()`
+invoked without its own `applies()` check passing first. The `collect`
+command (`src/commands/collect.py`, `_build_pipeline()`) registers the chain
+via `.middlewares(ModelNormalizeMiddleware())` when it builds the pipeline.
+
+### `ModelNormalizeMiddleware` — the first middleware
+
+`ModelNormalizeMiddleware` (`src/middleware/model_normalize.py`) always
+applies (`applies()` returns `True` unconditionally) and populates
+`SessionRecord.canonical_model` for every record:
+
+```python
+def process(self, records: list[SessionRecord]) -> list[SessionRecord]:
+    return [
+        replace(r, canonical_model=normalize_model(r.model, r.source))
+        for r in records
+    ]
+```
+
+It never mutates a record — `SessionRecord` is frozen, so each output record
+is a new instance built with `dataclasses.replace()`.
+
+The actual normalization logic lives in `normalize_model(raw, source)`
+(`src/model_normalize.py`) and resolves in a fixed order:
+
+1. **Strip a trailing `-YYYYMMDD` date suffix** via regex (e.g.
+   `claude-sonnet-4-5-20260101` → `claude-sonnet-4-5`).
+2. **Look up `(source, raw)`** in the static alias table loaded from
+   `src/model_aliases.toml`.
+3. **Passthrough unchanged** if neither step matched.
+
+`src/model_aliases.toml` is a static, cross-vendor alias table keyed first by
+collector `source`, then by the raw string that source reports, mapping to
+the canonical name:
+
+```toml
+[copilot_cli]
+"claude-sonnet-4.5" = "claude-sonnet-4-5"
+```
+
+This lets two different harnesses' names for the same underlying model
+collapse to one `canonical_model`, so reporting can group and filter by it
+regardless of which collector produced the record. The alias table degrades
+gracefully to empty if the TOML file is missing or malformed, so a bad or
+absent alias file never crashes CLI startup.
+
+### Adding a new middleware
+
+1. Implement the `RecordMiddleware` protocol: `name`, `applies(records)`,
+   `process(records)`.
+2. Register an instance via `.middlewares(...)` on the `TrackerPipeline`
+   where it's built — currently `_build_pipeline()` in
+   `src/commands/collect.py`.
+3. Remember `SessionRecord` is a **frozen dataclass** — `process()` must
+   return new records built with `dataclasses.replace()`, never mutate a
+   record in place.
+4. Add tests under `tests/` covering both `applies()` and `process()`.
+
+---
+
 ## Storage
 
 `SqliteStore` (`src/stores/sqlite.py`) owns the local database
@@ -318,6 +452,8 @@ stdlib-only package with one public function, `generate_name(existing=None,
 rng=None)`. `src/project_identity.py` is its only in-tree consumer, which
 keeps the package extractable into its own repository later.
 
+---
+
 ## Report flow
 
 `UsageReporter` (`src/report.py`) reads only the local SQLite database.
@@ -342,11 +478,19 @@ keeps the package extractable into its own repository later.
   header line reports overall cache efficiency (cache reads cost ~10% of
   regular input tokens).
 - `--model <name>` filters, `--json` emits machine-readable output.
+- **Grouping and filtering use `COALESCE(canonical_model, model)`** — every
+  query that groups or filters by model falls back to the raw `model` value
+  when `canonical_model` is unset (e.g. rows collected before the middleware
+  existed), so old and new rows for the same underlying model roll up
+  together. `--detailed` additionally shows the raw `canonical_model` column
+  alongside `model` so the two can be compared directly.
+
+---
 
 ## Configuration
 
-`Config.load()` (`src/config.py`) reads `~/.tokentracer.toml`
-(`C:\Users\<you>\.tokentracer.toml` on Windows):
+`Config.load()` (`src/config.py`) reads `~/.tokentracer/.tokentracer.toml`
+(`C:\Users\<you>\.tokentracer\.tokentracer.toml` on Windows):
 
 - `[tracking] track_project_names` (string, default `"no"`) — one of
   `"yes"` (real name), `"no"` (stable 12-hex guid per cwd), or
@@ -360,12 +504,14 @@ keeps the package extractable into its own repository later.
 - `[stores.<name>]` sections declare remote stores (see below).
 
 `${VAR}` placeholders in string values are expanded at store instantiation:
-lookup order is `os.environ` first, then `~/.tokentracer.env` (simple
+lookup order is `os.environ` first, then `~/.tokentracer/.tokentracer.env` (simple
 `KEY=VALUE` file; `#` comments and optional quotes supported). A missing
 variable raises `ValueError`, so secrets never need to live in the TOML file.
 
 `tracker.py config set <key> <value>` rewrites the TOML safely, preserving
 other keys.
+
+---
 
 ## Sync and the stores registry
 
@@ -415,6 +561,8 @@ key = "${SUPABASE_KEY}"      # service role key (bypasses RLS)
 table = "token_sessions"     # optional, this is the default
 ```
 
+---
+
 ## Extending
 
 ### Adding a collector
@@ -439,6 +587,15 @@ table = "token_sessions"     # optional, this is the default
 4. Add tests under `tests/` mocking the client
    (see `tests/test_supabase_store.py`).
 5. Users enable it with a `[stores.<name>]` section in
-   `~/.tokentracer.toml`.
+   `~/.tokentracer/.tokentracer.toml`.
+
+### Adding a middleware
+
+See [Adding a new middleware](#adding-a-new-middleware) under
+[Middleware](#middleware) for the full guide: implement `RecordMiddleware`
+(`name`/`applies`/`process`) and register it via `.middlewares(...)` where
+the pipeline is built (currently `_build_pipeline()` in
+`src/commands/collect.py`). Remember `SessionRecord` is frozen — build new
+records with `dataclasses.replace()`.
 
 Nothing else needs to change — that is the point of the design.

@@ -50,7 +50,7 @@ class SessionsDetailedView:
             SELECT
                 COALESCE(project, '—')                              AS project,
                 source,
-                model,
+                COALESCE(canonical_model, model)                       AS model,
                 start_ts,
                 end_ts,
                 input_tokens,
@@ -114,17 +114,17 @@ class PeriodSummaryView:
         period_expr = _PERIOD_SQL[ctx.period]
         rows = ctx.conn.execute(f"""
             SELECT
-                {period_expr}                       AS period,
+                {period_expr}                            AS period,
                 source,
-                model,
-                SUM(turns)                          AS turns,
-                SUM(input_tokens)                   AS input_tokens,
-                SUM(output_tokens)                  AS output_tokens,
-                SUM(cache_creation_tokens)          AS cache_creation_tokens,
-                SUM(cache_read_tokens)              AS cache_read_tokens
+                COALESCE(canonical_model, model)          AS model,
+                SUM(turns)                                AS turns,
+                SUM(input_tokens)                         AS input_tokens,
+                SUM(output_tokens)                        AS output_tokens,
+                SUM(cache_creation_tokens)                AS cache_creation_tokens,
+                SUM(cache_read_tokens)                    AS cache_read_tokens
             FROM sessions
             WHERE {ctx.date_filter}{ctx.model_filter}
-            GROUP BY {period_expr}, source, model
+            GROUP BY {period_expr}, source, COALESCE(canonical_model, model)
             ORDER BY period DESC, input_tokens DESC
         """, ctx.params).fetchall()
 
@@ -159,7 +159,7 @@ class ByProjectView:
             SELECT
                 project,
                 date,
-                model,
+                COALESCE(canonical_model, model)  AS model,
                 SUM(turns)              AS turns,
                 SUM(input_tokens)       AS input_tokens,
                 SUM(output_tokens)      AS output_tokens,
@@ -167,7 +167,7 @@ class ByProjectView:
             FROM sessions
             WHERE project IS NOT NULL
               AND {ctx.date_filter}{ctx.model_filter}
-            GROUP BY project, date, model
+            GROUP BY project, date, COALESCE(canonical_model, model)
             ORDER BY SUM(input_tokens + cache_read_tokens) DESC
         """, ctx.params).fetchall()
 
@@ -210,7 +210,7 @@ class SessionsListView:
                 date,
                 start_ts,
                 end_ts,
-                model,
+                COALESCE(canonical_model, model)                             AS model,
                 turns,
                 input_tokens + cache_creation_tokens + cache_read_tokens    AS total_tokens,
                 cache_read_tokens,
@@ -261,6 +261,7 @@ class FullDumpView:
                 session_id,
                 source,
                 model,
+                COALESCE(canonical_model, '—')  AS canonical_model,
                 date,
                 start_ts,
                 end_ts,
@@ -302,12 +303,12 @@ class FullDumpView:
         return _format_table(
             ctx.hit_rate,
             ctx.cost_saved,
-            headers=["Session", "Source", "Model", "Date", "Start", "End",
+            headers=["Session", "Source", "Model", "Canonical", "Date", "Start", "End",
                      "Project", "Turns", "Tools", "Input", "Output",
                      "CacheCreate", "CacheRead", "CtxPeak", "Reasoning",
                      "Context", "Synced"],
             rows=[
-                [r["session_id"], r["source"], r["model"], r["date"],
+                [r["session_id"], r["source"], r["model"], r["canonical_model"], r["date"],
                  (r["start_ts"] or "")[:19], (r["end_ts"] or "")[:19],
                  r["project"], r["turns"], r["tool_calls"],
                  r["input_tokens"], r["output_tokens"],
@@ -378,7 +379,7 @@ class UsageReporter:
         params: list = []
         if models:
             placeholders = ",".join("?" * len(models))
-            model_filter = f" AND model IN ({placeholders})"
+            model_filter = f" AND COALESCE(canonical_model, model) IN ({placeholders})"
             params.extend(models)
         return ReportContext(
             conn=conn,

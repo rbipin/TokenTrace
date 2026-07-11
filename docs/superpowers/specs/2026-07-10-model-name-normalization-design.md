@@ -1,0 +1,109 @@
+# Model Name Normalization
+
+## Problem
+
+Raw model identifiers stored in `sessions.model` fragment reporting in two ways:
+
+1. **Within-source drift.** Claude CLI reports both alias-form names (`claude-sonnet-4-6`) and dated snapshot names (`claude-haiku-4-5-20251001`) for what is effectively the same model, depending on when/how the session was recorded. `report.py`'s `GROUP BY ... model` treats these as distinct rows, fragmenting usage stats.
+2. **Cross-harness drift.** Different harnesses (Copilot CLI, Claude CLI, and future ones) may report the same underlying model under entirely different, vendor-specific strings, with no structural relationship between them (e.g. Copilot's own SKU name for a Claude model vs. Anthropic's own model ID).
+
+Goal: normalize both cases into a stable `canonical_model` for reporting, without losing the raw value, and support backfilling historical rows.
+
+## Design
+
+### Normalization function — `src/model_normalize.py`
+
+```python
+def normalize_model(raw: str, source: str) -> str
+```
+
+Applied in order:
+
+1. **Regex.** Strip a trailing `-YYYYMMDD` date suffix: pattern `^(.+)-(\d{8})$`. Source-agnostic — the pattern is specific enough that it won't false-positive on non-dated names. Handles Anthropic's snapshot naming convention generically, with no maintenance burden as new dated snapshots ship.
+2. **Lookup.** If the regex didn't match, look up `(source, raw)` in a static table for cases the regex structurally cannot resolve (arbitrary cross-vendor naming).
+3. **Passthrough.** If neither matches, `canonical_model = raw`, unchanged. This also correctly handles sentinel values (`unknown`, `<synthetic>`), which will never match steps 1 or 2.
+
+### Lookup table — `src/model_aliases.toml`
+
+Bundled with the package (not the user's `~/.tokentracer.toml`, which holds user-specific config, not static reference data):
+
+```toml
+[copilot_cli]
+"claude-sonnet-4.5" = "claude-sonnet-4-5"
+```
+
+Keyed by source, then raw string, to canonical name. Maintained manually as new harnesses/models are added — this is unavoidable for arbitrary cross-vendor name reconciliation.
+
+### Schema change
+
+Add `canonical_model TEXT` column to `sessions` (migration in `SqliteStore` init, since existing DBs need the column added).
+
+- `model` — raw, exactly as reported by the source harness. Preserved so normalization logic can be corrected/re-applied later without re-collecting from source logs.
+- `canonical_model` — normalized. Used for grouping/filtering in reports. Populated by the middleware described below, not by collectors.
+
+`report.py` switches its `GROUP BY` / filter columns from `model` to `canonical_model`. The existing dedup primary key `(session_id, source, model)` is unaffected — it continues to key off the raw value.
+
+### Middleware architecture — Pipes-and-Filters
+
+Rather than have each collector call `normalize_model` directly, normalization is implemented as a pluggable middleware stage in `TrackerPipeline`, so it can be swapped, extended, or reordered independently of collector code, and so future cross-cutting record transforms have a home that isn't collector-specific.
+
+This follows the **Pipes-and-Filters** pattern: every applicable stage transforms the batch and always forwards it to the next stage — unlike Chain of Responsibility, where (typically) one handler in the chain handles the request and stops propagation. The implementation looks similar (a sequence of stages each deciding whether to act), but nothing here short-circuits the chain.
+
+**Protocol — `src/middleware/base.py`** (new package, mirrors the plain-`Protocol` style of `collectors/base.py` and `stores/__init__.py`; no default-method base class):
+
+```python
+class RecordMiddleware(Protocol):
+    name: str
+    def applies(self, records: list[SessionRecord]) -> bool: ...
+    def process(self, records: list[SessionRecord]) -> list[SessionRecord]: ...
+```
+
+Batch-shaped (`list[SessionRecord]`, not one record at a time) because the insertion point in `pipeline.py` already has the full merged batch in hand — `collect()` yields one record at a time per collector, but `TrackerPipeline.run()` drains all of them, runs `merge_records()` over the full list, and only then hands the batch to stores. Middleware slots into that same batch boundary rather than forcing an extra per-record pass.
+
+**Insertion point — `TrackerPipeline.run()`**, between `merge_records()` and `stores[0].upsert()`:
+
+```python
+merged = merge_records(records)
+merged = [replace(rec, context=self._context) for rec in merged]
+for mw in self._middlewares:
+    if mw.applies(merged):
+        merged = mw.process(merged)
+written = self._stores[0].upsert(merged)
+```
+
+Both the sqlite store and remote stores read from the same post-middleware `merged` list, so normalization applies uniformly before any persistence.
+
+**Builder — `TrackerPipeline.middlewares(*mw)`**, a fluent setter mirroring `.stores(*stores)`. Wired in `collect.py:_build_pipeline` alongside collector registration.
+
+**Error handling.** If a middleware's `process()` raises, the exception propagates and the run aborts — same as a sqlite store failure today (no try/except around `stores[0].upsert()` in `pipeline.py`). Middleware mutates records before persistence; silently skipping a broken middleware risks writing inconsistent data (e.g. missing `canonical_model`) with no signal that normalization didn't happen.
+
+**Model normalization as the first concrete middleware — `src/middleware/model_normalize.py`**, wrapping the pure `normalize_model()` function:
+
+```python
+class ModelNormalizeMiddleware:
+    name = "model_normalize"
+    def applies(self, records: list[SessionRecord]) -> bool:
+        return True
+    def process(self, records: list[SessionRecord]) -> list[SessionRecord]:
+        return [replace(r, canonical_model=normalize_model(r.model, r.source)) for r in records]
+```
+
+Collectors are unchanged by this — they only ever extract the raw `model` string.
+
+### Sync-log fix (general)
+
+Today, `SqliteStore.upsert()` is a plain `INSERT OR REPLACE` that never touches `sync_log`, and `unsynced_for()` only checks whether a `sync_log` row *exists* for a given PK — it doesn't compare values. This means re-running `collect` over an already-synced window silently refreshes local values but never re-pushes them to remote, for *any* field, not just `canonical_model`. Verified in `src/stores/sqlite.py`.
+
+Fix: `upsert()` now does read-before-write. Before `INSERT OR REPLACE`, `SELECT` the existing row for `(session_id, source, model)`, diff it against the incoming record, and if anything differs, `DELETE FROM sync_log WHERE session_id=? AND source=? AND model=?` before writing. This makes `unsynced_for()` pick the row up again on the next `sync` run — fixing the general staleness gap, of which model-normalization backfill is one instance.
+
+### Backfill workflow
+
+No new command needed. Existing two-step flow already covers it:
+
+1. `tokentracer collect --lookback 90` — re-parses source logs for the window, recomputes `canonical_model` via `normalize_model`, re-upserts. Rows whose `canonical_model` changes get their `sync_log` entries cleared by the fix above.
+2. `tokentracer sync` — pushes now-unsynced rows (including backfilled ones) to remote stores.
+
+## Out of scope
+
+- A `reconcile-models`-style standalone command — the existing `collect --lookback` + `sync` flow covers backfill.
+- General data-quality auditing beyond the sync-log staleness fix described above.

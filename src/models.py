@@ -25,6 +25,7 @@ class SessionRecord:
     context_peak_tokens: int = 0
     reasoning_tokens: int = 0
     context: str = DEFAULT_CONTEXT  # usage context label, e.g. "work" or "personal"
+    canonical_model: str | None = None  # normalized model name, computed by ModelNormalizeMiddleware
 
     @property
     def key(self) -> tuple[str, str, str]:

@@ -9,6 +9,7 @@ from datetime import date
 from typing import List
 
 from .collectors.base import ActivityCollector
+from .middleware.base import RecordMiddleware
 from .models import DEFAULT_CONTEXT, SessionRecord, merge_records
 from .stores import SessionStore
 
@@ -40,6 +41,7 @@ class TrackerPipeline:
         self._since: date | None = None
         self._stores: list[SessionStore] = []
         self._context: str = DEFAULT_CONTEXT
+        self._middlewares: list[RecordMiddleware] = []
 
     def context(self, label: str) -> "TrackerPipeline":
         """Set the usage context label (e.g. "work" or "personal") stamped on every record."""
@@ -48,6 +50,10 @@ class TrackerPipeline:
 
     def add(self, collector: ActivityCollector) -> "TrackerPipeline":
         self._collectors.append(collector)
+        return self
+
+    def middlewares(self, *mw: RecordMiddleware) -> "TrackerPipeline":
+        self._middlewares = list(mw)
         return self
 
     def since(self, start: date) -> "TrackerPipeline":
@@ -92,6 +98,10 @@ class TrackerPipeline:
 
         merged = merge_records(records)
         merged = [replace(rec, context=self._context) for rec in merged]
+
+        for mw in self._middlewares:
+            if mw.applies(merged):
+                merged = mw.process(merged)
 
         # SQLite (first store) must succeed — exceptions propagate
         written = self._stores[0].upsert(merged)

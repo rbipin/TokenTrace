@@ -131,3 +131,9 @@ def test_cmd_projects_empty_db(tmp_path, capsys):
     args = parser.parse_args(["--db", str(tmp_path / "usage.db"), "projects"])
     assert args.run(args) == 0
     assert "No project identities" in capsys.readouterr().out
+
+
+def test_build_pipeline_wires_model_normalize_middleware(tmp_path):
+    pipeline, _ = collect_cmd._build_pipeline(_cfg(tmp_path, "yes"))
+    assert len(pipeline._middlewares) == 1
+    assert pipeline._middlewares[0].name == "model_normalize"
