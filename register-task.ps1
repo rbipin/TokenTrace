@@ -45,12 +45,20 @@ if (-not (Test-Path $logDir)) {
 $logPath = Join-Path $logDir "tracker.log"
 
 # -- Build task components -------------------------------------------------
-# Wrapped in cmd.exe so stdout/stderr land in tracker.log, since
-# New-ScheduledTaskAction has no native output-redirection option.
-$wrappedArgument = "/c `"$exe $argument >> `"$logPath`" 2>&1`""
+# Generate a small batch-file wrapper so stdout/stderr land in tracker.log,
+# since New-ScheduledTaskAction has no native output-redirection option.
+# Task Scheduler's -Execute points directly at this file, so there is no
+# argument-string quoting/escaping to get right at registration time; the
+# batch file's own single line is parsed by cmd.exe normally, exactly like
+# any other command line.
+$wrapperPath = Join-Path $logDir "run-collect.cmd"
+@"
+@echo off
+"$exe" $argument >> "$logPath" 2>&1
+"@ | Set-Content -Path $wrapperPath -Encoding ASCII
+
 $action = New-ScheduledTaskAction `
-    -Execute "cmd.exe" `
-    -Argument $wrappedArgument `
+    -Execute $wrapperPath `
     -WorkingDirectory $workDir
 
 # Run daily at 11:50 PM
