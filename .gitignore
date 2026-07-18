@@ -35,9 +35,15 @@ dist/
 Thumbs.db
 Desktop.ini
 .DS_Store
-.serena
 *.env
+
+# Superpowers
 .superpowers
 .superpowers/*
 .superpowers/sdd/
 .worktrees/
+
+# Headroom ai
+.tokensave
+.serena
+.claude/.headroom_*
