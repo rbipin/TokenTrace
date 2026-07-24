@@ -28,3 +28,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: system
 .legend { display: flex; gap: 16px; margin-top: 8px; font-size: 12px; flex-wrap: wrap; }
 .legend-item { display: flex; align-items: center; gap: 4px; }
 .legend-item i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.segmented-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--border); margin-bottom: 12px; }
+.segment { background: #5b8def; border-right: 1px solid var(--bg); }
+.harness-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+.harness-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+.range-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.range-tabs button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: none; color: var(--text); cursor: pointer; }
+.range-tabs button.active { background: var(--card-bg); font-weight: 600; }
