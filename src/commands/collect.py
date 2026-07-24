@@ -87,6 +87,8 @@ class CollectCommand:
         for err in result.stores_failed:
             print(f"Warning [store]: {err}", file=sys.stderr)
 
+        stores[0].record_run()
+
         if len(stores) > 1:
             sync_result = run_sync(stores[0], stores[1:], dry_run=False)
             for store_name, info in sync_result.items():
