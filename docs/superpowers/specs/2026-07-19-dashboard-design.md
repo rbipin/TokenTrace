@@ -41,10 +41,12 @@ New endpoints, backed by direct SQL against `usage.db` (read-only) rather than r
 | `GET /api/trend?days=30` | Per-day totals broken down by `source`, for the stacked area chart. |
 | `GET /api/projects?period=...` | Per-project total tokens, sorted descending, for the project list. |
 | `GET /api/projects/{project}?period=...` | Single project's harness split + context breakdown (same shape as `/api/summary` scoped to one project). |
-| `GET /api/sync-status` | `{ stores: [{ name, last_synced_at }] }` — `MAX(synced_at)` grouped by `store_name` from the `sync_log` table. Not part of `UsageReporter`; this is sync bookkeeping, not usage aggregation. |
+| `GET /api/sync-status` | `{ last_collected_at, stores: [{ name, last_synced_at }] }` — `last_collected_at` comes from the new `run_log` table (see below); `last_synced_at` per store is `MAX(synced_at)` grouped by `store_name` from the existing `sync_log` table. Not part of `UsageReporter`; this is sync/collection bookkeeping, not usage aggregation. |
 | `GET /api/meta` | `{ most_recent_data_at }` — `MAX(end_ts)` across `sessions`, shown in the page header. |
 
 **`week` and `custom` periods**: `week` is added as a new period alongside the existing `day`/`month`/`year`/`all` (last 7 days, analogous to `day`). `custom` bypasses the period enum entirely — `start`/`end` query params (ISO dates) are used directly as the date filter. This is a small, additive change to the date-filter logic already in `report.py`/the new SQL layer — no existing period's behavior changes.
+
+**Last collection time (`last_collected_at`)**: distinct from `most_recent_data_at` (latest session data) and `last_synced_at` (latest successful remote push) — this is the last time the `collect` command itself executed, whether or not it found new sessions. Tracked via a new single-row `run_log` table in `usage.db` (`SqliteStore.record_run(timestamp)`, upserted by primary key so the table never grows), written unconditionally at the end of every `collect` invocation (`CollectCommand.run()`), including idempotent no-op runs. This makes it possible to tell "the scheduled job is silently failing to run" apart from "the job runs fine but there's nothing new to collect."
 
 **Harness cards are data-driven, not hardcoded**: the mockup design shows 8 harnesses (Claude, Codex, Cursor, OpenCode, Antigravity, Kilo-CLI, CodeBuddy, Copilot). TokenTracer has exactly two real collectors today (`claude_cli`, `copilot_cli`). `/api/summary`'s harness breakdown groups by whatever `source` values actually exist in `sessions` — so the frontend renders however many harness cards there is real data for (2, today), not a fixed list. No fake/placeholder harnesses are ever shown.
 
@@ -56,7 +58,7 @@ React + Vite source lives in `frontend/`, built via a one-time `npm install && n
 
 **Pages** (matches the shared design reference, `docs/design/dashboard.html`, scoped to real data per above):
 
-- **Tokens page** (`/`, default): a stats card (7d/30d/avg/month token pills, top-models ranked list, active-days footer), an activity heatmap (`/api/heatmap`), a 30-day stacked usage trend by harness (`/api/trend`), a sync-log card (`/api/sync-status`), a total-tokens card with range tabs (Day/Week/Month/Total/Custom) and per-harness cards (`/api/summary`), a context-breakdown bar chart (Input/Output/Cache Read/Cache Creation/Reasoning), and a model-breakdown table.
+- **Tokens page** (`/`, default): a stats card (7d/30d/avg/month token pills, top-models ranked list, active-days footer), an activity heatmap (`/api/heatmap`), a 30-day stacked usage trend by harness (`/api/trend`), a sync-log card (`/api/sync-status`) showing "Last collected: {timestamp | Never}" alongside each configured store's "Last synced: {timestamp | Never synced}", a total-tokens card with range tabs (Day/Week/Month/Total/Custom) and per-harness cards (`/api/summary`), a context-breakdown bar chart (Input/Output/Cache Read/Cache Creation/Reasoning), and a model-breakdown table.
 - **Projects page** (`/projects`): a project list sorted by total tokens (`/api/projects`); selecting a project shows its harness split and context breakdown (`/api/projects/{project}`), mirroring the Tokens page's per-harness and context-breakdown components.
 - A "Most recent data: {timestamp}" label (from `/api/meta`) appears in the header of both pages.
 - Manual refresh only: each page has a Refresh button that re-fetches its endpoints; no auto-polling interval.
@@ -66,7 +68,8 @@ React + Vite source lives in `frontend/`, built via a one-time `npm install && n
 
 - API endpoints return `400` with a JSON error body for invalid query params (bad `period`, malformed `start`/`end` dates, unknown `project`); `500` with a generic JSON error body on unexpected SQL/IO failures — never a raw traceback in the response.
 - `DashboardCommand` unit tests mock `platform.system()`/`subprocess.run` for `--daemon`/`--stop` (same pattern as `schedule`/`unschedule`'s tests: verify plist/task XML content, no real `launchctl`/`schtasks` invocation).
-- API layer tests use a `tmp_path`-created SQLite db (matching existing `SqliteStore` test fixtures) seeded with known rows, asserting exact JSON shapes from each endpoint — including empty-db edge cases (no sessions yet: `/api/summary` returns zeros, not an error).
+- API layer tests use a `tmp_path`-created SQLite db (matching existing `SqliteStore` test fixtures) seeded with known rows, asserting exact JSON shapes from each endpoint — including empty-db edge cases (no sessions yet: `/api/summary` returns zeros, not an error; no `run_log` row yet: `/api/sync-status` returns `last_collected_at: null`).
+- `SqliteStore.record_run` tests: upserts a single row (never grows past one), timestamp updates on repeat calls. `CollectCommand` tests: `record_run` is called exactly once per invocation regardless of whether new records were found.
 - No browser/E2E test suite in this repo; frontend correctness is verified manually (`npm run dev` against a seeded local db) before each release, per `CLAUDE.md`'s UI-testing guidance.
 
 ## Out of scope
