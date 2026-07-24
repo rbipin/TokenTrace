@@ -66,12 +66,12 @@ function buildMonthLabels(weeks) {
   });
 }
 
-export default function Heatmap() {
+export default function Heatmap({ refreshKey = 0 }) {
   const [days, setDays] = useState([]);
 
   useEffect(() => {
     getHeatmap(DAYS_BACK).then(setDays).catch(() => setDays([]));
-  }, []);
+  }, [refreshKey]);
 
   const max = days.reduce((m, d) => Math.max(m, d.tokens), 0);
   const weeks = buildWeeks(days, DAYS_BACK);

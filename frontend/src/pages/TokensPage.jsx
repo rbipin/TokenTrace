@@ -16,11 +16,13 @@ export default function TokensPage() {
   const [range, setRange] = useState("all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const refresh = () => {
     const params = range === "custom"
       ? { period: "custom", start: customStart, end: customEnd }
       : { period: range };
+    setRefreshKey((k) => k + 1);
     return getSummary(params).then(setSummary).catch(() => {});
   };
 
@@ -33,14 +35,19 @@ export default function TokensPage() {
       <button onClick={refresh}>Refresh</button>
       <div className="grid-2">
         <StatsCard summary={summary} />
-        <SyncLogCard />
+        <SyncLogCard refreshKey={refreshKey} />
       </div>
-      <Heatmap />
-      <TrendChart />
+      <Heatmap refreshKey={refreshKey} />
+      <TrendChart refreshKey={refreshKey} />
       <div className="card">
         <div className="range-tabs">
           {RANGES.map((r) => (
-            <button key={r} className={r === range ? "active" : ""} onClick={() => setRange(r)}>
+            <button
+              key={r}
+              className={r === range ? "active" : ""}
+              aria-current={r === range ? "true" : undefined}
+              onClick={() => setRange(r)}
+            >
               {RANGE_LABELS[r]}
             </button>
           ))}

@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { getSyncStatus } from "../api.js";
 
-export default function SyncLogCard() {
+export default function SyncLogCard({ refreshKey = 0 }) {
   const [status, setStatus] = useState(null);
 
   useEffect(() => {
     getSyncStatus()
       .then(setStatus)
       .catch(() => setStatus({ last_collected_at: null, stores: [] }));
-  }, []);
+  }, [refreshKey]);
 
   if (status === null) return <div className="card">Loading sync status…</div>;
 

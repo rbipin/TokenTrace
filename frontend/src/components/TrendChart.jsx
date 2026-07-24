@@ -3,12 +3,12 @@ import { getTrend } from "../api.js";
 
 const COLORS = ["#5b8def", "#f2994a", "#9b59b6", "#27ae60", "#e74c3c", "#f1c40f"];
 
-export default function TrendChart() {
+export default function TrendChart({ refreshKey = 0 }) {
   const [rows, setRows] = useState([]);
 
   useEffect(() => {
     getTrend(30).then(setRows).catch(() => setRows([]));
-  }, []);
+  }, [refreshKey]);
 
   const dates = [...new Set(rows.map((r) => r.date))].sort();
   const sources = [...new Set(rows.map((r) => r.source))];
