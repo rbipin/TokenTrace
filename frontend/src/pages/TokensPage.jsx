@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getSummary } from "../api.js";
 import StatsCard from "../components/StatsCard.jsx";
 import SyncLogCard from "../components/SyncLogCard.jsx";
+import Heatmap from "../components/Heatmap.jsx";
 
 export default function TokensPage() {
   const [summary, setSummary] = useState(null);
@@ -19,6 +20,7 @@ export default function TokensPage() {
         <StatsCard summary={summary} />
         <SyncLogCard />
       </div>
+      <Heatmap />
     </div>
   );
 }
