@@ -9,6 +9,16 @@ export default function ProjectList({ projects, selected, onSelect }) {
             key={p.project}
             className={p.project === selected ? "selected" : ""}
             onClick={() => onSelect(p.project)}
+            role="button"
+            tabIndex={0}
+            aria-label={p.project}
+            aria-current={p.project === selected ? "true" : undefined}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect(p.project);
+              }
+            }}
           >
             <span>{p.project}</span>
             <div className="bar-track"><div className="bar-fill" style={{ width: `${(p.tokens / max) * 100}%` }} /></div>

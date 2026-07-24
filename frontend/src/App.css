@@ -24,6 +24,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: system
 .heatmap-cell.has-data { background: #3fb950; }
 .heatmap-cell.placeholder { background: transparent; }
 .heatmap-cell:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+.project-list li:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
 .heatmap-legend { font-size: 11px; opacity: 0.6; margin-top: 8px; }
 .legend { display: flex; gap: 16px; margin-top: 8px; font-size: 12px; flex-wrap: wrap; }
 .legend-item { display: flex; align-items: center; gap: 4px; }
