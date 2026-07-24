@@ -76,3 +76,23 @@ def test_summary_project_filter(tmp_db):
     ])
     result = queries.summary(_conn(tmp_db), "all", project="proj-a")
     assert result["total_tokens"] == 100
+
+
+def test_heatmap_returns_daily_totals(tmp_db):
+    store = SqliteStore(tmp_db)
+    today = date.today().isoformat()
+    store.upsert([_rec("s1", today, input_tokens=100)])
+    result = queries.heatmap(_conn(tmp_db), days=180)
+    assert result == [{"date": today, "tokens": 100}]
+
+
+def test_trend_breaks_down_by_source(tmp_db):
+    store = SqliteStore(tmp_db)
+    today = date.today().isoformat()
+    store.upsert([
+        _rec("s1", today, input_tokens=100, source="claude_cli"),
+        _rec("s2", today, input_tokens=40, source="copilot_cli", model="gpt-5"),
+    ])
+    result = queries.trend(_conn(tmp_db), days=30)
+    by_source = {r["source"]: r["tokens"] for r in result}
+    assert by_source == {"claude_cli": 100, "copilot_cli": 40}

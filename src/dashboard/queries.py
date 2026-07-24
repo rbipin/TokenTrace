@@ -104,3 +104,25 @@ def summary(
             for r in model_rows
         ],
     }
+
+
+def heatmap(conn: sqlite3.Connection, days: int = 180) -> list[dict]:
+    rows = conn.execute(f"""
+        SELECT date, SUM({_TOKENS_EXPR}) AS tokens
+        FROM sessions
+        WHERE date >= date('now', ?, 'localtime')
+        GROUP BY date
+        ORDER BY date
+    """, [f"-{days - 1} days"]).fetchall()
+    return [{"date": r["date"], "tokens": r["tokens"]} for r in rows]
+
+
+def trend(conn: sqlite3.Connection, days: int = 30) -> list[dict]:
+    rows = conn.execute(f"""
+        SELECT date, source, SUM({_TOKENS_EXPR}) AS tokens
+        FROM sessions
+        WHERE date >= date('now', ?, 'localtime')
+        GROUP BY date, source
+        ORDER BY date, source
+    """, [f"-{days - 1} days"]).fetchall()
+    return [{"date": r["date"], "source": r["source"], "tokens": r["tokens"]} for r in rows]
