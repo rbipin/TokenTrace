@@ -65,7 +65,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
             if not project:
                 raise ValueError("project query param is required")
             return queries.project_detail(
-                conn, unquote(project), qs.get("period", "all"), qs.get("start"), qs.get("end"),
+                conn, project, qs.get("period", "all"), qs.get("start"), qs.get("end"),
             )
         if path == "/api/sync-status":
             return queries.sync_status(conn)
