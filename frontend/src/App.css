@@ -35,3 +35,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: system
 .range-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
 .range-tabs button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: none; color: var(--text); cursor: pointer; }
 .range-tabs button.active { background: var(--card-bg); font-weight: 600; }
+.bar-row { display: grid; grid-template-columns: 110px 1fr 70px; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+.bar-track { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+.bar-track.small { display: inline-block; width: 60px; margin-right: 6px; vertical-align: middle; }
+.bar-fill { height: 100%; background: #5b8def; }
+.model-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.model-table th, .model-table td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); }

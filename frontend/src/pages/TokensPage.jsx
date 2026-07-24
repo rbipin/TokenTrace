@@ -5,6 +5,8 @@ import SyncLogCard from "../components/SyncLogCard.jsx";
 import Heatmap from "../components/Heatmap.jsx";
 import TrendChart from "../components/TrendChart.jsx";
 import HarnessCards from "../components/HarnessCards.jsx";
+import ContextBreakdown from "../components/ContextBreakdown.jsx";
+import ModelTable from "../components/ModelTable.jsx";
 
 const RANGES = ["day", "week", "month", "all", "custom"];
 const RANGE_LABELS = { day: "Day", week: "Week", month: "Month", all: "Total", custom: "Custom" };
@@ -52,6 +54,8 @@ export default function TokensPage() {
         <h3>{summary ? summary.total_tokens.toLocaleString() : "—"} tokens</h3>
         <HarnessCards summary={summary} />
       </div>
+      <ContextBreakdown summary={summary} />
+      <ModelTable summary={summary} />
     </div>
   );
 }
