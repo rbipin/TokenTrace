@@ -43,6 +43,13 @@ CREATE TABLE IF NOT EXISTS sync_log (
 )
 """
 
+_CREATE_RUN_LOG = """
+CREATE TABLE IF NOT EXISTS run_log (
+    id      INTEGER PRIMARY KEY CHECK (id = 1),
+    ran_at  TEXT NOT NULL
+)
+"""
+
 _UPSERT = """
 INSERT OR REPLACE INTO sessions
     (session_id, source, model, canonical_model, date, start_ts, end_ts, project,
@@ -92,6 +99,7 @@ class SqliteStore:
             # Create new schema
             conn.execute(_CREATE_SESSIONS)
             conn.execute(_CREATE_SYNC_LOG)
+            conn.execute(_CREATE_RUN_LOG)
             # Add context column to pre-existing sessions tables
             cols = {r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()}
             if "context" not in cols:
@@ -181,6 +189,17 @@ class SqliteStore:
             )
             for row in rows
         ]
+
+    def record_run(self, timestamp: str | None = None) -> None:
+        """Record that `collect` executed, upserting the single run_log row."""
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                """
+                INSERT INTO run_log (id, ran_at) VALUES (1, COALESCE(?, datetime('now')))
+                ON CONFLICT(id) DO UPDATE SET ran_at = excluded.ran_at
+                """,
+                (timestamp,),
+            )
 
     def mark_synced(self, records: list[SessionRecord], store_name: str) -> None:
         """Record that the given records were successfully pushed to store_name."""

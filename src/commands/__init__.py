@@ -8,6 +8,7 @@ from __future__ import annotations
 from src.commands.base import Command
 from src.commands.collect import CollectCommand
 from src.commands.config import ConfigCommand
+from src.commands.dashboard import DashboardCommand
 from src.commands.projects import ProjectsCommand
 from src.commands.report import ReportCommand
 from src.commands.sync import SyncCommand
@@ -18,6 +19,7 @@ COMMANDS: list[Command] = [
     ConfigCommand(),
     ProjectsCommand(),
     SyncCommand(),
+    DashboardCommand(),
 ]
 
 __all__ = ["Command", "COMMANDS"]

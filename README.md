@@ -306,6 +306,25 @@ your total token budget came from the cache, and the approximate cost saving
 
 ---
 
+## Dashboard
+
+A local web dashboard visualizes `usage.db` without the CLI `report` commands.
+
+One-time frontend build:
+```bash
+cd frontend && pnpm install && pnpm run build
+```
+
+Then:
+```bash
+tokentracer dashboard              # foreground, http://127.0.0.1:8420, Ctrl-C to stop
+tokentracer dashboard --port 9000  # custom port
+tokentracer dashboard --daemon     # install as a persistent background service (survives reboot/logout)
+tokentracer dashboard --stop       # remove the persistent service
+```
+
+---
+
 ## Configuration
 
 Settings are stored in `~/.tokentracer/.tokentracer.toml` in your home directory:

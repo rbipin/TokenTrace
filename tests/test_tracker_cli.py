@@ -86,9 +86,16 @@ def test_cmd_collect_closes_identity_store(tmp_path, monkeypatch):
         def run(self):
             return FakeResult()
 
+    class DummySqliteStore:
+        def record_run(self):
+            pass
+
+        def close(self):
+            pass
+
     monkeypatch.setattr(Config, "load", classmethod(lambda cls, **kw: _cfg(tmp_path, "no")))
     monkeypatch.setattr(collect_cmd, "_build_pipeline", lambda cfg: (FakePipeline(), SpyStore()))
-    monkeypatch.setattr(collect_cmd, "_build_stores", lambda cfg: [])
+    monkeypatch.setattr(collect_cmd, "_build_stores", lambda cfg: [DummySqliteStore()])
 
     parser = tracker.build_parser()
     args = parser.parse_args(["collect"])
@@ -168,6 +175,9 @@ def test_cmd_collect_sweeps_unsynced_records(tmp_path, monkeypatch, capsys):
             self.marked.append((name, [r.session_id for r in records]))
             self._pending = []
 
+        def record_run(self):
+            pass
+
         def close(self):
             pass
 
@@ -225,6 +235,9 @@ def test_cmd_collect_no_sweep_when_no_remote_stores(tmp_path, monkeypatch, capsy
             return FakeResult()
 
     class SpyStore:
+        def record_run(self):
+            pass
+
         def close(self):
             pass
 
@@ -237,3 +250,41 @@ def test_cmd_collect_no_sweep_when_no_remote_stores(tmp_path, monkeypatch, capsy
     assert args.run(args) == 0
     captured = capsys.readouterr()
     assert "Synced" not in captured.out
+
+
+def test_cmd_collect_records_run(tmp_path, monkeypatch):
+    class FakeResult:
+        errors = ()
+        stores_failed = ()
+        records_written = 0
+        collectors_run = 0
+
+    class FakePipeline:
+        def since(self, _):
+            return self
+
+        def stores(self, *_):
+            return self
+
+        def run(self):
+            return FakeResult()
+
+    class SpyStore:
+        def __init__(self):
+            self.record_run_calls = 0
+
+        def record_run(self):
+            self.record_run_calls += 1
+
+        def close(self):
+            pass
+
+    spy = SpyStore()
+    monkeypatch.setattr(Config, "load", classmethod(lambda cls, **kw: _cfg(tmp_path, "no")))
+    monkeypatch.setattr(collect_cmd, "_build_pipeline", lambda cfg: (FakePipeline(), None))
+    monkeypatch.setattr(collect_cmd, "_build_stores", lambda cfg: [spy])
+
+    parser = tracker.build_parser()
+    args = parser.parse_args(["collect"])
+    assert args.run(args) == 0
+    assert spy.record_run_calls == 1
