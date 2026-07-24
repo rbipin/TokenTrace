@@ -50,6 +50,11 @@ python3 tracker.py projects
 # Sync unsynced records to configured remote stores (e.g., Supabase)
 python3 tracker.py sync
 python3 tracker.py sync --dry-run   # show pending counts without pushing
+
+# Run the local dashboard (after building the frontend once, see README)
+python3 tracker.py dashboard
+python3 tracker.py dashboard --daemon
+python3 tracker.py dashboard --stop
 ```
 
 No build step — standard library only at runtime. Install `pytest` for testing: `pip install -r requirements.txt`.
