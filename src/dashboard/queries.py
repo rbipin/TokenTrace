@@ -26,6 +26,11 @@ def date_filter(period: str, start: str | None, end: str | None) -> tuple[str, l
     return _DATE_RANGE_SQL[period], []
 
 
+def _last_n_days_filter(days: int) -> tuple[str, list]:
+    """Return a WHERE fragment for the last N days and its bind params."""
+    return "date >= date('now', ?, 'localtime')", [f"-{days - 1} days"]
+
+
 def summary(
     conn: sqlite3.Connection,
     period: str,
@@ -107,22 +112,24 @@ def summary(
 
 
 def heatmap(conn: sqlite3.Connection, days: int = 180) -> list[dict]:
+    where, params = _last_n_days_filter(days)
     rows = conn.execute(f"""
         SELECT date, SUM({_TOKENS_EXPR}) AS tokens
         FROM sessions
-        WHERE date >= date('now', ?, 'localtime')
+        WHERE {where}
         GROUP BY date
         ORDER BY date
-    """, [f"-{days - 1} days"]).fetchall()
+    """, params).fetchall()
     return [{"date": r["date"], "tokens": r["tokens"]} for r in rows]
 
 
 def trend(conn: sqlite3.Connection, days: int = 30) -> list[dict]:
+    where, params = _last_n_days_filter(days)
     rows = conn.execute(f"""
         SELECT date, source, SUM({_TOKENS_EXPR}) AS tokens
         FROM sessions
-        WHERE date >= date('now', ?, 'localtime')
+        WHERE {where}
         GROUP BY date, source
         ORDER BY date, source
-    """, [f"-{days - 1} days"]).fetchall()
+    """, params).fetchall()
     return [{"date": r["date"], "source": r["source"], "tokens": r["tokens"]} for r in rows]
