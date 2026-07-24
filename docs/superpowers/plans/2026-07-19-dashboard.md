@@ -419,14 +419,187 @@ git commit -m "feat: add dashboard per-project queries"
 
 ---
 
-### Task 4: `sync_status()` and `meta()` queries
+### Task 4: Track last collect run (`run_log` table)
+
+**Files:**
+- Modify: `src/stores/sqlite.py`
+- Modify: `src/commands/collect.py`
+- Test: `tests/test_sqlite_run_log.py`
+- Test: `tests/test_tracker_cli.py`
+
+**Interfaces:**
+- Produces: `SqliteStore.record_run(timestamp: str | None = None) -> None` — upserts the single row (`id = 1`) in a new `run_log` table, using `datetime('now')` when `timestamp` is omitted. Called unconditionally by `CollectCommand.run()` at the end of every `collect` invocation, including idempotent no-op runs — this is what makes `last_collected_at` (Task 5) distinct from `most_recent_data_at`.
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/test_sqlite_run_log.py
+from __future__ import annotations
+
+import sqlite3
+
+from src.stores.sqlite import SqliteStore
+
+
+def test_record_run_inserts_single_row(tmp_db):
+    store = SqliteStore(tmp_db)
+    store.record_run()
+    conn = sqlite3.connect(tmp_db)
+    rows = conn.execute("SELECT id, ran_at FROM run_log").fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == 1
+    assert rows[0][1] is not None
+
+
+def test_record_run_upserts_not_grows(tmp_db):
+    store = SqliteStore(tmp_db)
+    store.record_run("2026-01-01T00:00:00")
+    store.record_run("2026-01-02T00:00:00")
+    conn = sqlite3.connect(tmp_db)
+    rows = conn.execute("SELECT ran_at FROM run_log").fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == "2026-01-02T00:00:00"
+
+
+def test_record_run_accepts_explicit_timestamp(tmp_db):
+    store = SqliteStore(tmp_db)
+    store.record_run("2026-07-19T10:00:00+00:00")
+    conn = sqlite3.connect(tmp_db)
+    row = conn.execute("SELECT ran_at FROM run_log WHERE id = 1").fetchone()
+    assert row[0] == "2026-07-19T10:00:00+00:00"
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `python3 -m pytest tests/test_sqlite_run_log.py -v`
+Expected: FAIL with `AttributeError: 'SqliteStore' object has no attribute 'record_run'`
+
+- [ ] **Step 3: Implement `run_log` table + `record_run`**
+
+```python
+# src/stores/sqlite.py — add alongside _CREATE_SESSIONS / _CREATE_SYNC_LOG
+_CREATE_RUN_LOG = """
+CREATE TABLE IF NOT EXISTS run_log (
+    id      INTEGER PRIMARY KEY CHECK (id = 1),
+    ran_at  TEXT NOT NULL
+)
+"""
+```
+
+```python
+# src/stores/sqlite.py — in _migrate(), alongside the other conn.execute(_CREATE_*) calls
+            conn.execute(_CREATE_SESSIONS)
+            conn.execute(_CREATE_SYNC_LOG)
+            conn.execute(_CREATE_RUN_LOG)
+```
+
+```python
+# src/stores/sqlite.py — new method on SqliteStore
+    def record_run(self, timestamp: str | None = None) -> None:
+        """Record that `collect` executed, upserting the single run_log row."""
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                """
+                INSERT INTO run_log (id, ran_at) VALUES (1, COALESCE(?, datetime('now')))
+                ON CONFLICT(id) DO UPDATE SET ran_at = excluded.ran_at
+                """,
+                (timestamp,),
+            )
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `python3 -m pytest tests/test_sqlite_run_log.py -v`
+Expected: PASS (all 3 tests)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/stores/sqlite.py tests/test_sqlite_run_log.py
+git commit -m "feat: add run_log table and SqliteStore.record_run"
+```
+
+- [ ] **Step 6: Write the failing `CollectCommand` wiring test**
+
+```python
+# append to tests/test_tracker_cli.py
+
+def test_cmd_collect_records_run(tmp_path, monkeypatch):
+    class FakeResult:
+        errors = ()
+        stores_failed = ()
+        records_written = 0
+        collectors_run = 0
+
+    class FakePipeline:
+        def since(self, _):
+            return self
+
+        def stores(self, *_):
+            return self
+
+        def run(self):
+            return FakeResult()
+
+    class SpyStore:
+        def __init__(self):
+            self.record_run_calls = 0
+
+        def record_run(self):
+            self.record_run_calls += 1
+
+        def close(self):
+            pass
+
+    spy = SpyStore()
+    monkeypatch.setattr(Config, "load", classmethod(lambda cls, **kw: _cfg(tmp_path, "no")))
+    monkeypatch.setattr(collect_cmd, "_build_pipeline", lambda cfg: (FakePipeline(), None))
+    monkeypatch.setattr(collect_cmd, "_build_stores", lambda cfg: [spy])
+
+    parser = tracker.build_parser()
+    args = parser.parse_args(["collect"])
+    assert args.run(args) == 0
+    assert spy.record_run_calls == 1
+```
+
+- [ ] **Step 7: Run test to verify it fails**
+
+Run: `python3 -m pytest tests/test_tracker_cli.py -k test_cmd_collect_records_run -v`
+Expected: FAIL with `assert 0 == 1` (nothing calls `record_run` yet)
+
+- [ ] **Step 8: Wire `record_run` into `CollectCommand.run()`**
+
+```python
+# src/commands/collect.py — in CollectCommand.run(), right after the pipeline run's
+# try/finally block (before the "if len(stores) > 1" sync-sweep check)
+        stores[0].record_run()
+```
+
+`stores[0]` is always the local `SqliteStore` per `_build_stores()` — called unconditionally, whether or not the run found new records, so a completed idempotent run still updates `last_collected_at`.
+
+- [ ] **Step 9: Run tests to verify they pass**
+
+Run: `python3 -m pytest tests/test_tracker_cli.py -v`
+Expected: PASS (all tests in the file)
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/commands/collect.py tests/test_tracker_cli.py
+git commit -m "feat: record collect run timestamp on every invocation"
+```
+
+---
+
+### Task 5: `sync_status()` and `meta()` queries
 
 **Files:**
 - Modify: `src/dashboard/queries.py`
 - Test: `tests/test_dashboard_queries.py`
 
 **Interfaces:**
-- Produces: `queries.sync_status(conn) -> dict` — `{"stores": [{"name", "last_synced_at"}]}` from `MAX(synced_at)` grouped by `store_name` in `sync_log`.
+- Consumes: the `run_log` table written by `SqliteStore.record_run` (Task 4).
+- Produces: `queries.sync_status(conn) -> dict` — `{"last_collected_at": <ran_at from run_log, or None>, "stores": [{"name", "last_synced_at"}]}`; `last_synced_at` per store is `MAX(synced_at)` grouped by `store_name` in `sync_log`.
 - Produces: `queries.meta(conn) -> dict` — `{"most_recent_data_at": <MAX(end_ts) across sessions, or None>}`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -448,7 +621,14 @@ def test_sync_status_groups_by_store(tmp_db):
 def test_sync_status_empty(tmp_db):
     SqliteStore(tmp_db)
     result = queries.sync_status(_conn(tmp_db))
-    assert result == {"stores": []}
+    assert result == {"last_collected_at": None, "stores": []}
+
+
+def test_sync_status_includes_last_collected_at(tmp_db):
+    store = SqliteStore(tmp_db)
+    store.record_run("2026-07-19T10:00:00+00:00")
+    result = queries.sync_status(_conn(tmp_db))
+    assert result["last_collected_at"] == "2026-07-19T10:00:00+00:00"
 
 
 def test_meta_most_recent_data(tmp_db):
@@ -476,6 +656,7 @@ Expected: FAIL with `AttributeError: module 'src.dashboard.queries' has no attri
 # append to src/dashboard/queries.py
 
 def sync_status(conn: sqlite3.Connection) -> dict:
+    run_row = conn.execute("SELECT ran_at FROM run_log WHERE id = 1").fetchone()
     rows = conn.execute("""
         SELECT store_name, MAX(synced_at) AS last_synced_at
         FROM sync_log
@@ -483,10 +664,11 @@ def sync_status(conn: sqlite3.Connection) -> dict:
         ORDER BY store_name
     """).fetchall()
     return {
+        "last_collected_at": run_row["ran_at"] if run_row else None,
         "stores": [
             {"name": r["store_name"], "last_synced_at": r["last_synced_at"]}
             for r in rows
-        ]
+        ],
     }
 
 
@@ -498,7 +680,7 @@ def meta(conn: sqlite3.Connection) -> dict:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python3 -m pytest tests/test_dashboard_queries.py -v`
-Expected: PASS (all 14 tests)
+Expected: PASS (all 16 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -509,14 +691,14 @@ git commit -m "feat: add dashboard sync-status and meta queries"
 
 ---
 
-### Task 5: HTTP API server
+### Task 6: HTTP API server
 
 **Files:**
 - Create: `src/dashboard/server.py`
 - Test: `tests/test_dashboard_server.py`
 
 **Interfaces:**
-- Consumes: every function in `src.dashboard.queries` from Tasks 1–4.
+- Consumes: every function in `src.dashboard.queries` from Tasks 1–3 and 5.
 - Produces: `src.dashboard.server.make_server(db_path: Path, static_dir: Path, port: int) -> http.server.ThreadingHTTPServer` — binds to `127.0.0.1:<port>` (port `0` lets the OS assign one for tests; read back via `server.server_address[1]`).
 
 - [ ] **Step 1: Write the failing tests**
@@ -599,7 +781,7 @@ def test_project_detail_endpoint(running_server):
 def test_sync_status_endpoint(running_server):
     status, body = _get(running_server, "/api/sync-status")
     assert status == 200
-    assert body == {"stores": []}
+    assert body == {"last_collected_at": None, "stores": []}
 
 
 def test_meta_endpoint(running_server):
@@ -756,7 +938,7 @@ git commit -m "feat: add dashboard HTTP API server"
 
 ---
 
-### Task 6: Daemon lifecycle (macOS + Windows)
+### Task 7: Daemon lifecycle (macOS + Windows)
 
 **Files:**
 - Create: `src/dashboard/daemon.py`
@@ -972,7 +1154,7 @@ git commit -m "feat: add dashboard daemon install/uninstall for macOS and Window
 
 ---
 
-### Task 7: `DashboardCommand` + CLI registration
+### Task 8: `DashboardCommand` + CLI registration
 
 **Files:**
 - Create: `src/commands/dashboard.py`
@@ -980,7 +1162,7 @@ git commit -m "feat: add dashboard daemon install/uninstall for macOS and Window
 - Test: `tests/test_dashboard_command.py`
 
 **Interfaces:**
-- Consumes: `src.dashboard.daemon.install`, `daemon.uninstall` (Task 6); `src.dashboard.server.make_server` (Task 5); `src.config.Config.load()` (existing).
+- Consumes: `src.dashboard.daemon.install`, `daemon.uninstall` (Task 7); `src.dashboard.server.make_server` (Task 6); `src.config.Config.load()` (existing).
 - Produces: `DashboardCommand` implementing the `Command` protocol (`src/commands/base.py`), registered in `COMMANDS`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1169,7 +1351,7 @@ git commit -m "feat: add tokentracer dashboard command"
 
 ---
 
-### Task 8: Frontend scaffold (Vite + React, API client)
+### Task 9: Frontend scaffold (Vite + React, API client)
 
 **Files:**
 - Create: `frontend/package.json`
@@ -1292,7 +1474,7 @@ Run:
 ```bash
 cd frontend && npm install && npm run dev
 ```
-Expected: Vite prints a local dev URL; visiting it shows a blank page with no console errors about missing `App.jsx` module resolution failing silently (it will 404 until Task 9 adds `App.jsx` — confirm the *dev server itself* starts without error).
+Expected: Vite prints a local dev URL; visiting it shows a blank page with no console errors about missing `App.jsx` module resolution failing silently (it will 404 until Task 10 adds `App.jsx` — confirm the *dev server itself* starts without error).
 
 - [ ] **Step 8: Commit**
 
@@ -1303,7 +1485,7 @@ git commit -m "feat: scaffold dashboard frontend (Vite + React) and API client"
 
 ---
 
-### Task 9: `App.jsx` — tab navigation + theme toggle
+### Task 10: `App.jsx` — tab navigation + theme toggle
 
 **Files:**
 - Create: `frontend/src/App.jsx`
@@ -1398,7 +1580,7 @@ export default function TokensPage() {
 ```
 
 ```jsx
-// frontend/src/pages/ProjectsPage.jsx (stub — filled in by Task 15)
+// frontend/src/pages/ProjectsPage.jsx (stub — filled in by Task 16)
 export default function ProjectsPage() {
   return <div className="card">Projects page (under construction)</div>;
 }
@@ -1418,7 +1600,7 @@ git commit -m "feat: add dashboard app shell with nav and theme toggle"
 
 ---
 
-### Task 10: Tokens page — stats card + sync log card
+### Task 11: Tokens page — stats card + sync log card
 
 **Files:**
 - Modify: `frontend/src/pages/TokensPage.jsx`
@@ -1427,7 +1609,7 @@ git commit -m "feat: add dashboard app shell with nav and theme toggle"
 
 **Interfaces:**
 - Consumes: `getSummary`, `getSyncStatus` from `api.js`.
-- Produces: `StatsCard` (props: `{ summary }`) renders total/active-days/top-models; `SyncLogCard` (no props, fetches its own data) renders each configured store's last-synced time or "Never synced".
+- Produces: `StatsCard` (props: `{ summary }`) renders total/active-days/top-models; `SyncLogCard` (no props, fetches its own data) renders "Last collected: {timestamp | Never}" plus each configured store's last-synced time or "Never synced".
 
 - [ ] **Step 1: Create `frontend/src/components/StatsCard.jsx`**
 
@@ -1464,23 +1646,29 @@ import { useEffect, useState } from "react";
 import { getSyncStatus } from "../api.js";
 
 export default function SyncLogCard() {
-  const [stores, setStores] = useState(null);
+  const [status, setStatus] = useState(null);
 
   useEffect(() => {
-    getSyncStatus().then((data) => setStores(data.stores)).catch(() => setStores([]));
+    getSyncStatus()
+      .then(setStatus)
+      .catch(() => setStatus({ last_collected_at: null, stores: [] }));
   }, []);
 
-  if (stores === null) return <div className="card">Loading sync status…</div>;
-  if (stores.length === 0) return <div className="card">No remote stores configured.</div>;
+  if (status === null) return <div className="card">Loading sync status…</div>;
 
   return (
     <div className="card">
       <h4>Sync log</h4>
-      <ul>
-        {stores.map((s) => (
-          <li key={s.name}>{s.name}: last synced {s.last_synced_at || "never"}</li>
-        ))}
-      </ul>
+      <p>Last collected: {status.last_collected_at || "Never"}</p>
+      {status.stores.length === 0 ? (
+        <p>No remote stores configured.</p>
+      ) : (
+        <ul>
+          {status.stores.map((s) => (
+            <li key={s.name}>{s.name}: last synced {s.last_synced_at || "never"}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -1530,7 +1718,7 @@ git commit -m "feat: add dashboard stats and sync-log cards"
 
 ---
 
-### Task 11: Activity heatmap component
+### Task 12: Activity heatmap component
 
 **Files:**
 - Create: `frontend/src/components/Heatmap.jsx`
@@ -1608,7 +1796,7 @@ git commit -m "feat: add dashboard activity heatmap"
 
 ---
 
-### Task 12: 30-day usage trend chart
+### Task 13: 30-day usage trend chart
 
 **Files:**
 - Create: `frontend/src/components/TrendChart.jsx`
@@ -1717,7 +1905,7 @@ git commit -m "feat: add dashboard 30-day usage trend chart"
 
 ---
 
-### Task 13: Total-tokens card with range tabs + harness cards
+### Task 14: Total-tokens card with range tabs + harness cards
 
 **Files:**
 - Create: `frontend/src/components/HarnessCards.jsx`
@@ -1843,7 +2031,7 @@ git commit -m "feat: add dashboard range tabs and harness breakdown cards"
 
 ---
 
-### Task 14: Context breakdown + model breakdown table
+### Task 15: Context breakdown + model breakdown table
 
 **Files:**
 - Create: `frontend/src/components/ContextBreakdown.jsx`
@@ -1952,14 +2140,14 @@ git commit -m "feat: add dashboard context-breakdown and model-breakdown views"
 
 ---
 
-### Task 15: Projects page
+### Task 16: Projects page
 
 **Files:**
 - Modify: `frontend/src/pages/ProjectsPage.jsx`
 - Create: `frontend/src/components/ProjectList.jsx`
 
 **Interfaces:**
-- Consumes: `getProjects`, `getProjectDetail` from `api.js`; reuses `HarnessCards` and `ContextBreakdown` from Tasks 13–14 (already accept a `summary`-shaped prop).
+- Consumes: `getProjects`, `getProjectDetail` from `api.js`; reuses `HarnessCards` and `ContextBreakdown` from Tasks 14–15 (already accept a `summary`-shaped prop).
 - Produces: `ProjectList` (props: `{ projects, selected, onSelect }`) — sorted list, click to select. `ProjectsPage` fetches the project list, tracks the selected project, and fetches/reuses `HarnessCards`/`ContextBreakdown` scoped to it via `getProjectDetail`.
 
 - [ ] **Step 1: Create `frontend/src/components/ProjectList.jsx`**
@@ -2063,13 +2251,13 @@ git commit -m "feat: add dashboard projects page"
 
 ---
 
-### Task 16: README + full-stack verification
+### Task 17: README + full-stack verification
 
 **Files:**
 - Modify: `README.md`
 - Modify: `CLAUDE.md` (Commands section)
 
-**Interfaces:** None new — this task documents Tasks 1–15 and does an end-to-end smoke test.
+**Interfaces:** None new — this task documents Tasks 1–16 and does an end-to-end smoke test.
 
 - [ ] **Step 1: Add dashboard usage to `README.md`**
 
@@ -2106,7 +2294,7 @@ python3 tracker.py dashboard --stop
 - [ ] **Step 3: Run the full backend test suite**
 
 Run: `python3 -m pytest -q`
-Expected: all tests pass, including the 4 new `test_dashboard_*.py` files from Tasks 1–7.
+Expected: all tests pass, including the 4 new `test_dashboard_*.py` files from Tasks 1–3 and 5–8, plus the new `tests/test_sqlite_run_log.py` and the `CollectCommand` wiring test from Task 4.
 
 - [ ] **Step 4: End-to-end manual smoke test**
 
