@@ -21,7 +21,7 @@ export default function SyncLogCard() {
       ) : (
         <ul>
           {status.stores.map((s) => (
-            <li key={s.name}>{s.name}: last synced {s.last_synced_at || "never"}</li>
+            <li key={s.name}>{s.name} — Last synced: {s.last_synced_at || "Never synced"}</li>
           ))}
         </ul>
       )}
