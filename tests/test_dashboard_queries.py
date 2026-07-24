@@ -119,3 +119,41 @@ def test_project_detail_scopes_to_one_project(tmp_db):
     ])
     result = queries.project_detail(_conn(tmp_db), "proj-a", "all")
     assert result["total_tokens"] == 100
+
+
+def test_sync_status_groups_by_store(tmp_db):
+    store = SqliteStore(tmp_db)
+    today = date.today().isoformat()
+    store.upsert([_rec("s1", today, input_tokens=10)])
+    store.mark_synced([_rec("s1", today, input_tokens=10)], "supabase")
+    result = queries.sync_status(_conn(tmp_db))
+    assert len(result["stores"]) == 1
+    assert result["stores"][0]["name"] == "supabase"
+    assert result["stores"][0]["last_synced_at"] is not None
+
+
+def test_sync_status_empty(tmp_db):
+    SqliteStore(tmp_db)
+    result = queries.sync_status(_conn(tmp_db))
+    assert result == {"last_collected_at": None, "stores": []}
+
+
+def test_sync_status_includes_last_collected_at(tmp_db):
+    store = SqliteStore(tmp_db)
+    store.record_run("2026-07-19T10:00:00+00:00")
+    result = queries.sync_status(_conn(tmp_db))
+    assert result["last_collected_at"] == "2026-07-19T10:00:00+00:00"
+
+
+def test_meta_most_recent_data(tmp_db):
+    store = SqliteStore(tmp_db)
+    today = date.today().isoformat()
+    store.upsert([_rec("s1", today, end_ts="2026-07-19T10:00:00+00:00")])
+    result = queries.meta(_conn(tmp_db))
+    assert result["most_recent_data_at"] == "2026-07-19T10:00:00+00:00"
+
+
+def test_meta_empty_db(tmp_db):
+    SqliteStore(tmp_db)
+    result = queries.meta(_conn(tmp_db))
+    assert result["most_recent_data_at"] is None

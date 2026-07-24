@@ -156,3 +156,38 @@ def project_detail(
 ) -> dict:
     """Return summary for a single project."""
     return summary(conn, period, start=start, end=end, project=project)
+
+
+def sync_status(conn: sqlite3.Connection) -> dict:
+    """Return sync status info: last collection time and per-store last sync times.
+
+    Returns:
+        dict with keys:
+            - last_collected_at: ISO8601 timestamp from run_log, or None
+            - stores: list of {"name": str, "last_synced_at": ISO8601 timestamp}
+    """
+    run_row = conn.execute("SELECT ran_at FROM run_log WHERE id = 1").fetchone()
+    rows = conn.execute("""
+        SELECT store_name, MAX(synced_at) AS last_synced_at
+        FROM sync_log
+        GROUP BY store_name
+        ORDER BY store_name
+    """).fetchall()
+    return {
+        "last_collected_at": run_row["ran_at"] if run_row else None,
+        "stores": [
+            {"name": r["store_name"], "last_synced_at": r["last_synced_at"]}
+            for r in rows
+        ],
+    }
+
+
+def meta(conn: sqlite3.Connection) -> dict:
+    """Return metadata about the database: most recent data timestamp.
+
+    Returns:
+        dict with keys:
+            - most_recent_data_at: ISO8601 timestamp of latest session end_ts, or None
+    """
+    row = conn.execute("SELECT MAX(end_ts) AS most_recent FROM sessions").fetchone()
+    return {"most_recent_data_at": row["most_recent"]}
