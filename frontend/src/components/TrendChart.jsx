@@ -28,13 +28,19 @@ export default function TrendChart() {
   return (
     <div className="card">
       <h4>Usage trend (last 30 days)</h4>
-      <svg width={dates.length * (barWidth + gap)} height={chartHeight}>
+      <svg
+        width={dates.length * (barWidth + gap)}
+        height={chartHeight}
+        role="group"
+        aria-label="Usage trend, last 30 days, stacked by source"
+      >
         {dates.map((date, i) => {
           let yOffset = chartHeight;
           return sources.map((source, si) => {
             const tokens = byDate[date][source] || 0;
             const h = (tokens / maxTotal) * chartHeight;
             yOffset -= h;
+            const label = `${date} — ${source}: ${tokens.toLocaleString()}`;
             return (
               <rect
                 key={`${date}-${source}`}
@@ -43,8 +49,11 @@ export default function TrendChart() {
                 width={barWidth}
                 height={h}
                 fill={COLORS[si % COLORS.length]}
+                role="img"
+                aria-label={label}
+                tabIndex={0}
               >
-                <title>{`${date} — ${source}: ${tokens.toLocaleString()}`}</title>
+                <title>{label}</title>
               </rect>
             );
           });
