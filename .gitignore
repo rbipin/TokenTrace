@@ -29,6 +29,10 @@ build/
 dist/
 *.egg-info/
 
+# Frontend build (generated via `cd frontend && pnpm install && pnpm run build`)
+frontend/node_modules/
+frontend/dist/
+
 # Editor / OS cruft
 .idea/
 .vscode/
