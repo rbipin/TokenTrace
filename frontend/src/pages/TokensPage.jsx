@@ -3,6 +3,7 @@ import { getSummary } from "../api.js";
 import StatsCard from "../components/StatsCard.jsx";
 import SyncLogCard from "../components/SyncLogCard.jsx";
 import Heatmap from "../components/Heatmap.jsx";
+import TrendChart from "../components/TrendChart.jsx";
 
 export default function TokensPage() {
   const [summary, setSummary] = useState(null);
@@ -21,6 +22,7 @@ export default function TokensPage() {
         <SyncLogCard />
       </div>
       <Heatmap />
+      <TrendChart />
     </div>
   );
 }
