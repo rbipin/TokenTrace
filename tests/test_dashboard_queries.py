@@ -96,3 +96,26 @@ def test_trend_breaks_down_by_source(tmp_db):
     result = queries.trend(_conn(tmp_db), days=30)
     by_source = {r["source"]: r["tokens"] for r in result}
     assert by_source == {"claude_cli": 100, "copilot_cli": 40}
+
+
+def test_projects_sorted_descending(tmp_db):
+    store = SqliteStore(tmp_db)
+    today = date.today().isoformat()
+    store.upsert([
+        _rec("s1", today, input_tokens=50, project="small"),
+        _rec("s2", today, input_tokens=500, project="big"),
+        _rec("s3", today, input_tokens=10),  # no project, excluded
+    ])
+    result = queries.projects(_conn(tmp_db), "all")
+    assert [r["project"] for r in result] == ["big", "small"]
+
+
+def test_project_detail_scopes_to_one_project(tmp_db):
+    store = SqliteStore(tmp_db)
+    today = date.today().isoformat()
+    store.upsert([
+        _rec("s1", today, input_tokens=100, project="proj-a"),
+        _rec("s2", today, input_tokens=999, project="proj-b"),
+    ])
+    result = queries.project_detail(_conn(tmp_db), "proj-a", "all")
+    assert result["total_tokens"] == 100

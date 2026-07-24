@@ -133,3 +133,26 @@ def trend(conn: sqlite3.Connection, days: int = 30) -> list[dict]:
         ORDER BY date, source
     """, params).fetchall()
     return [{"date": r["date"], "source": r["source"], "tokens": r["tokens"]} for r in rows]
+
+
+def projects(
+    conn: sqlite3.Connection, period: str, start: str | None = None, end: str | None = None,
+) -> list[dict]:
+    """Return list of projects and their token totals, sorted by tokens descending."""
+    where, params = date_filter(period, start, end)
+    rows = conn.execute(f"""
+        SELECT project, SUM({_TOKENS_EXPR}) AS tokens
+        FROM sessions
+        WHERE project IS NOT NULL AND {where}
+        GROUP BY project
+        ORDER BY tokens DESC
+    """, params).fetchall()
+    return [{"project": r["project"], "tokens": r["tokens"]} for r in rows]
+
+
+def project_detail(
+    conn: sqlite3.Connection, project: str, period: str,
+    start: str | None = None, end: str | None = None,
+) -> dict:
+    """Return summary for a single project."""
+    return summary(conn, period, start=start, end=end, project=project)
